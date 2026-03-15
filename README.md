@@ -1,5 +1,7 @@
 # Auto-claude-code-research-in-sleep (ARIS ⚔️)
 
+![ARIS Logo](docs/aris_logo.svg)
+
 ![Hero](docs/hero_combined.svg)
 
 [中文版 README](README_CN.md) | English
