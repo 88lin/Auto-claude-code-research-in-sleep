@@ -53,6 +53,8 @@ claude
 > /research-pipeline "你的研究方向"            # 全流程：工作流 1 → 2 → 3 端到端
 ```
 
+> 📝 **第一次用工作流 3？** 参考 [`docs/NARRATIVE_REPORT_EXAMPLE.md`](docs/NARRATIVE_REPORT_EXAMPLE.md) 查看完整输入样本——展示了 claims、实验、结果、图表描述应包含哪些内容。
+
 > **提示：** 所有流水线行为均可通过内联参数配置——在命令后追加 `— key: value`：
 >
 > | 参数 | 默认 | 说明 |
@@ -245,7 +247,7 @@ claude
 
 > **一键调用：** `/paper-writing "NARRATIVE_REPORT.md"` 自动跑完整个工作流 3。
 
-**输入：** 一份 `NARRATIVE_REPORT.md`，描述研究内容：声明、实验、结果、图表。叙事越详细（尤其是图表描述和定量结果），输出越好。
+**输入：** 一份 `NARRATIVE_REPORT.md`，描述研究内容：声明、实验、结果、图表。叙事越详细（尤其是图表描述和定量结果），输出越好。完整示例见 [`docs/NARRATIVE_REPORT_EXAMPLE.md`](docs/NARRATIVE_REPORT_EXAMPLE.md)。
 
 **输出：** 一个可投稿的 `paper/` 目录，含 LaTeX 源码、干净的 `.bib`（仅含实际引用）、编译好的 PDF。
 

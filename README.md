@@ -53,6 +53,8 @@ claude
 > /research-pipeline "your research direction"  # Full pipeline: Workflow 1 → 2 → 3 end-to-end
 ```
 
+> 📝 **New to Workflow 3?** See [`docs/NARRATIVE_REPORT_EXAMPLE.md`](docs/NARRATIVE_REPORT_EXAMPLE.md) for a complete sample input — shows what claims, experiments, results, and figure descriptions to include for best results.
+
 > **Tip:** All pipeline behaviors are configurable via inline overrides — append `— key: value` to any command:
 >
 > | Parameter | Default | What it does |
@@ -315,7 +317,7 @@ The output is a ranked `IDEA_REPORT.md` with hypotheses, pilot results, reviewer
 
 > **One-command shortcut:** `/paper-writing "NARRATIVE_REPORT.md"` runs this entire workflow automatically.
 
-**Input:** A `NARRATIVE_REPORT.md` describing the research: claims, experiments, results, figures. The more detailed the narrative (especially figure descriptions and quantitative results), the better the output.
+**Input:** A `NARRATIVE_REPORT.md` describing the research: claims, experiments, results, figures. The more detailed the narrative (especially figure descriptions and quantitative results), the better the output. See [`docs/NARRATIVE_REPORT_EXAMPLE.md`](docs/NARRATIVE_REPORT_EXAMPLE.md) for a complete example.
 
 **Output:** A submission-ready `paper/` directory with LaTeX source, clean `.bib` (only cited entries), and compiled PDF.
 
