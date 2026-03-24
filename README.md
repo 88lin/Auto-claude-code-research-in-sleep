@@ -46,13 +46,6 @@ ARIS reads the paper → finds its weaknesses → clones the codebase → genera
 
 > Mix and match: `ref paper` only = "what can be improved?", `base repo` only = "what can I build with this code?", both = "improve *this* paper using *this* code."
 
-**After acceptance** — your paper is in, now prepare the presentation:
-
-```
-/paper-slides "paper/"     # → Beamer PDF + PPTX + speaker notes + Q&A prep
-/paper-poster "paper/"     # → A0/A1 poster PDF + editable PPTX + SVG
-```
-
 **🔥 Rebuttal mode** — reviews just dropped? Don't panic. ARIS reads every concern, builds a strategy, and drafts a rebuttal that's grounded, structured, and under the character limit:
 
 ```
@@ -75,7 +68,14 @@ Three safety gates — rebuttal will NOT finalize if any fails:
 
 Two outputs: `PASTE_READY.txt` (exact char count, paste to venue) + `REBUTTAL_DRAFT_rich.md` (extended version for manual editing).
 
-> *💡 From idea to paper to podium to rebuttal — one toolchain. 🌱*
+**After acceptance** — your paper is in, now prepare the presentation:
+
+```
+/paper-slides "paper/"     # → Beamer PDF + PPTX + speaker notes + Q&A prep
+/paper-poster "paper/"     # → A0/A1 poster PDF + editable PPTX + SVG
+```
+
+> *💡 From idea to paper to podium — one toolchain. 🌱*
 
 ## 🏆 Papers Accepted with ARIS
 
