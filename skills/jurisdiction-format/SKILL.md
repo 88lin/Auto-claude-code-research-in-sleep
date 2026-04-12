@@ -72,7 +72,7 @@ If `OUTPUT_FORMAT = "markdown"`:
 
 If `OUTPUT_FORMAT = "docx"`:
 - Use python-docx to create Word documents matching CNIPA templates
-- Set font to 宋体 (SimSun) for body, 黑体 (SimHea) for headers
+- Set font to 宋体 (SimSun) for body, 黑体 (SimHei) for headers
 - Standard margins (上下 2.54cm, 左右 3.17cm)
 
 ### Step 3: Generate US Format (if US or ALL)
