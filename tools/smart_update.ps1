@@ -11,7 +11,7 @@
 #     .\tools\smart_update.ps1 -UpstreamPath <path> -LocalPath <path> [-Apply]
 #
 #   -Apply: actually perform the updates (default: dry-run analysis only)
-#   -ProjectPath: project root — uses <ProjectPath>/skills as upstream and <ProjectPath>/.claude/skills as local
+#   -ProjectPath: project root — upstream is always the repo's skills/; local targets <ProjectPath>/.claude/skills
 #   -UpstreamPath: explicit upstream skills directory
 #   -LocalPath: explicit local skills directory
 
@@ -238,6 +238,7 @@ function Invoke-SafeUpdate {
     foreach ($s in $NewList) {
         $src = Join-Path $SrcDir $s
         $dst = Join-Path $DstDir $s
+        if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
         Copy-Item -Path $src -Destination $dst -Recurse -Force
         Write-Host "  + Added: $s" -ForegroundColor Green
     }
@@ -245,6 +246,7 @@ function Invoke-SafeUpdate {
     foreach ($s in $SafeList) {
         $src = Join-Path $SrcDir $s
         $dst = Join-Path $DstDir $s
+        if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
         Copy-Item -Path $src -Destination $dst -Recurse -Force
         Write-Host "  ^ Updated: $s" -ForegroundColor Cyan
     }
