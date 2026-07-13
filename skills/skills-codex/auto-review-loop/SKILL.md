@@ -57,6 +57,7 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 ```json
 {
+  "run_id": "run_20260713_a1b2c3d4",
   "round": 2,
   "agent_id": "019cd392-...",
   "status": "in_progress",
@@ -67,9 +68,29 @@ Long-running loops may hit the context window limit, triggering automatic compac
 }
 ```
 
-**Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest state matters.
+- **`run_id`** — Globally unique per invocation. Generated on fresh start as `run_<YYYYMMDD>_<8-char-hex>` (e.g., `run_20260713_a1b2c3d4`). Preserved across round writes. On resume, read from state file unchanged. This binds all round state and acquittal receipts to one run.
+
+**Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest round's state matters. The `run_id` field MUST persist unchanged across overwrites within the same run.
 
 **On completion** (positive assessment or max rounds), set `"status": "completed"` so future invocations don't accidentally resume a finished loop.
+
+### Append-Only Acquittal Receipt
+
+In addition to the overwritable state file, maintain an **append-only** acquittal log at `review-stage/ACQUITTAL_LOG.jsonl`. Each line is a standalone JSON object recording an acquitting positive verdict:
+
+```jsonl
+{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"trace_id":"trace_20260713_run03","timestamp":"2026-07-13T14:22:00Z"}
+```
+
+**Rules (non-negotiable):**
+
+| Rule | Detail |
+|------|--------|
+| **Append-only** | Never delete, never truncate, never overwrite lines. Only `>>`. |
+| **When to write** | At the end of Phase E, immediately after a positive verdict (score >= 6 AND verdict ∈ {"ready", "almost"}). |
+| **`run_id` binding** | Every acquittal line carries the current `run_id`. Only entries whose `run_id` matches the current run are valid acquittals for stop decisions. |
+| **Trace linkage** | `trace_id` MUST reference a trace artifact in `.aris/traces/`. |
+| **No overwrite** | `REVIEW_STATE.json` is overwritten each round. `ACQUITTAL_LOG.jsonl` is NEVER overwritten — it is the permanent, cumulative record.
 
 ## Workflow
 
@@ -77,10 +98,14 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 1. **Check for `review-stage/REVIEW_STATE.json`** *(fall back to `./REVIEW_STATE.json` if not found — legacy path)*:
    - If neither path exists: **fresh start** (normal case, identical to behavior before this feature existed)
-   - If it exists AND `status` is `"completed"`: **fresh start** (previous loop finished normally)
+     - **Generate `run_id`**: `run_<YYYYMMDD>_<8-char-hex>` (e.g., `run_20260713_a1b2c3d4`). This run_id persists across all round writes and binds acquittal receipts to this invocation.
+   - If it exists AND `status` is `"completed"`: **fresh start** (previous loop finished normally — but its `ACQUITTAL_LOG.jsonl` entries are retained as an audit trail with their own `run_id`, and are NOT valid for the current run's stop gate)
+     - **Generate a new `run_id`** for this invocation.
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is older than 24 hours: **fresh start** (stale state from a killed/abandoned run — delete the file and start over)
+     - **Generate a new `run_id`** for this invocation.
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is within 24 hours: **resume**
-     - Read the state file to recover `round`, `agent_id`, `last_score`, `pending_experiments`
+     - Read the state file to recover `run_id`, `round`, `agent_id`, `last_score`, `pending_experiments`
+     - **Legacy backward compat**: if `run_id` is absent from the state file (pre-run_id era), generate a new `run_id` and log: "No run_id in legacy state file; assigned run_<...> for this resume."
      - Read `review-stage/AUTO_REVIEW.md` to restore full context of prior rounds *(fall back to `./AUTO_REVIEW.md`)*
      - If `pending_experiments` is non-empty, check if they have completed (e.g., check screen sessions)
      - Resume from the next round (round = saved round + 1)
@@ -181,7 +206,9 @@ Rules:
 
 #### Phase B.5.1: Stop-Evaluation Gate
 
-**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
+**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → **write an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`** (see Append-Only Acquittal Receipt rules above), then stop loop, document final state.
+
+This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
 #### Phase B.6: Debate Protocol (hard + nightmare only)
 
@@ -309,7 +336,13 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 - [continuing to round N+1 / stopping]
 ```
 
-**Write `review-stage/REVIEW_STATE.json`** with current round, agent id, score, verdict, and any pending experiments.
+**Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, agent id, score, verdict, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
+
+**If score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
+```
+{"run_id":"<current-run_id>","round":<N>,"backend":"codex","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"trace_<YYYYMMDD>_run<NN>","timestamp":"<ISO8601>"}
+```
+Use `>>` (append), never `>`. The `trace_id` must reference the trace artifact written per Review Tracing protocol for this round's reviewer call.
 
 **Append to `findings.md`** (when `COMPACT = true`): one-line entry per key finding this round.
 
@@ -383,3 +416,37 @@ send_input:
     Please re-score and re-assess. Are the remaining concerns addressed?
     Same format: Score, Verdict, Remaining Weaknesses, Minimum Fixes.
 ```
+
+## Acquittal Gate Test Specifications
+
+The following test cases validate the `run_id` + append-only acquittal receipt mechanism.
+
+### Test 1: Fresh Start — Codex Acquits
+
+**Setup:** Delete `review-stage/REVIEW_STATE.json` and `review-stage/ACQUITTAL_LOG.jsonl`. Run review.
+
+**Action:** Codex round 1 returns score=7, verdict="ready".
+
+**Expected:** Phase E writes acquittal line to `ACQUITTAL_LOG.jsonl` with current `run_id`. Loop stops.
+
+### Test 2: Stale Completed State — Old Run's Acquittal Does NOT Satisfy New Run
+
+**Setup:** Run 1 (run_id=`run_20260713_aaaaaaaa`) completes with `status: "completed"` and writes acquittal: `{"run_id":"run_20260713_aaaaaaaa","backend":"codex","verdict":"ready","score":7}` to `ACQUITTAL_LOG.jsonl`. Then a fresh-start invocation generates run_id=`run_20260713_bbbbbbbb`.
+
+**Action:** Run 2 round 1 returns score=5, verdict="not ready". Continue to round 2, score=8, verdict="ready".
+
+**Expected:** Run 2's acquittal line has `run_id=run_20260713_bbbbbbbb`. The old acquittal with `run_id=run_20260713_aaaaaaaa` is an audit artifact only. The stop gate for run 2 uses the current-run acquittal.
+
+### Test 3: Legacy State File — No run_id Field
+
+**Setup:** Create a `REVIEW_STATE.json` with `status: "in_progress"`, a fresh timestamp, but NO `run_id` field. Resume.
+
+**Expected:** Initialization detects missing `run_id` and generates one. Log: "No run_id in legacy state file; assigned run_<...> for this resume."
+
+### Test 4: Append-Only Integrity
+
+**Setup:** Run producing three rounds: round 1 (score=5), round 2 (score=7, "ready"), round 3 (score=8, "ready").
+
+**Action:** After the loop, inspect `ACQUITTAL_LOG.jsonl`.
+
+**Expected:** File contains exactly 2 lines (round 2 and round 3), each with the same `run_id`. Lines are never overwritten or deleted.

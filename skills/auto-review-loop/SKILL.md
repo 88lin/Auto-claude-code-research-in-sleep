@@ -86,6 +86,7 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 ```json
 {
+  "run_id": "run_20260713_a1b2c3d4",
   "round": 2,
   "threadId": "019cd392-...",
   "reviewer_profile": "aris-reviewer-openai",
@@ -103,11 +104,34 @@ Long-running loops may hit the context window limit, triggering automatic compac
 }
 ```
 
+- **`run_id`** — Globally unique per invocation. Generated on fresh start as `run_<YYYYMMDD>_<8-char-hex>` (e.g., `run_20260713_a1b2c3d4`). Preserved across round writes. On resume, read from state file unchanged. This binds all round state, reviewer-memory appends, and acquittal receipts to one run so a stale completed state from a previous invocation cannot leak into the current run's acquittal check.
+
 When REVIEWER_BACKEND = `copilot`, save `reviewer_profile` (the custom agent profile name used), `executor_model` (from `--executor-model`), `executor_family` (derived), `reviewer_family` (from profile's pinned model), and `independence_verified: true` (confirmed `executor_family != reviewer_family`). Copilot tasks do not return a persistent agent ID — each round is a fresh `task` call with the same profile. For `codex` backend, save `threadId` (Codex MCP thread ID). For `manual` backend, save `threadId` (manual-review thread ID). On resume, use the `reviewer_backend` field to determine the correct continuation mechanism (fresh `task` call with profile for copilot, `codex-reply` for codex, `manual_review_reply` for manual).
 
-**Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest state matters.
+**Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest round's state matters. The `run_id` field MUST persist unchanged across overwrites within the same run.
 
 **On completion** (positive assessment or max rounds), set `"status": "completed"` so future invocations don't accidentally resume a finished loop.
+
+### Append-Only Acquittal Receipt
+
+In addition to the overwritable state file, maintain an **append-only** acquittal log at `review-stage/ACQUITTAL_LOG.jsonl`. Each line is a standalone JSON object recording an acquitting positive verdict:
+
+```jsonl
+{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"trace_id":"trace_20260713_run03","timestamp":"2026-07-13T14:22:00Z"}
+```
+
+**Rules (non-negotiable):**
+
+| Rule | Detail |
+|------|--------|
+| **Append-only** | Never delete, never truncate, never overwrite lines. Only `>>`. |
+| **Who writes** | Only `codex` or `manual` backends at `xhigh`+ effort. Copilot NEVER writes an acquittal line. |
+| **When to write** | At the end of Phase E, immediately after a positive verdict (score >= 6 AND verdict ∈ {"ready", "almost"}) from a qualifying backend. |
+| **`run_id` binding** | Every acquittal line carries the current `run_id`. The stop-evaluation gate for Copilot MUST verify `run_id` matches the current run before accepting an acquittal. |
+| **Trace linkage** | `trace_id` MUST reference a trace artifact in `.aris/traces/` (per Review Tracing protocol) so every acquittal is independently verifiable. |
+| **No overwrite** | `REVIEW_STATE.json` is overwritten each round (only latest state). `ACQUITTAL_LOG.jsonl` is NEVER overwritten — it is the permanent, cumulative record. |
+
+**Why this exists:** `REVIEW_STATE.json` is overwritten each round (only the latest state matters per the contract above). When a run completes with `status: "completed"` and a codex/manual positive verdict, a subsequent fresh-start invocation writes a new `REVIEW_STATE.json` — obliterating the prior run's acquittal data. The Copilot stop-evaluation gate (Phase B.5.1) must check for an acquittal from the **current run**, not a stale state file. The append-only `ACQUITTAL_LOG.jsonl`, with `run_id` matching, is the only reliable source of truth.
 
 ## Output Protocols
 
@@ -122,11 +146,14 @@ When REVIEWER_BACKEND = `copilot`, save `reviewer_profile` (the custom agent pro
 
 1. **Check for `review-stage/REVIEW_STATE.json`** *(fall back to `./REVIEW_STATE.json` if not found — legacy path)*:
    - If neither path exists: **fresh start** (normal case, identical to behavior before this feature existed)
-   - If it exists AND `status` is `"completed"`: **fresh start** (previous loop finished normally)
+     - **Generate `run_id`**: `run_<YYYYMMDD>_<8-char-hex>` (e.g., `run_20260713_a1b2c3d4`). Use `date +%Y%m%d` and 8 random hex characters. This run_id persists across all round writes and binds acquittal receipts to this invocation.
+   - If it exists AND `status` is `"completed"`: **fresh start** (previous loop finished normally — but its `ACQUITTAL_LOG.jsonl` entries are retained as an audit trail with their own `run_id`, and are NOT valid for the current run's stop gate)
+     - **Generate a new `run_id`** for this invocation.
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is older than 24 hours: **fresh start** (stale state from a killed/abandoned run — delete the file and start over)
+     - **Generate a new `run_id`** for this invocation.
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is within 24 hours: **resume**
-     - Read the state file to recover `round`, `threadId` (or `reviewer_profile` for copilot backend), `reviewer_backend`, `last_score`, `pending_experiments`
-     - **Legacy backward compat**: if `reviewer_backend` is absent from the state file, default to `codex` (pre-copilot-era states did not record this field).
+     - Read the state file to recover `run_id`, `round`, `threadId` (or `reviewer_profile` for copilot backend), `reviewer_backend`, `last_score`, `pending_experiments`
+     - **Legacy backward compat**: if `reviewer_backend` is absent from the state file, default to `codex` (pre-copilot-era states did not record this field). If `run_id` is absent from the state file (pre-run_id era), generate a new `run_id` and log: "No run_id in legacy state file; assigned run_<...> for this resume."
      - Read `review-stage/AUTO_REVIEW.md` to restore full context of prior rounds *(fall back to `./AUTO_REVIEW.md`)*
      - If `pending_experiments` is non-empty, check if they have completed (e.g., check screen sessions)
      - Resume from the next round (round = saved round + 1)
@@ -342,8 +369,10 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 
 **STOP CONDITION — branch by REVIEWER_BACKEND:**
 
-- **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
-- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict earlier in this same run. To check: scan `review-stage/REVIEW_STATE.json` for a prior round where `reviewer_backend` ∈ {codex, manual} AND `last_verdict` ∈ {"ready", "almost"} AND `last_score` >= 6. If such an acquittal exists: stop. Otherwise: continue to next round — the copilot verdict counts as a "passing drive" but does not terminate the loop alone.
+- **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → **write an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`** (see Append-Only Acquittal Receipt rules above), then stop loop, document final state.
+- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict **in this same run**. To check: scan `review-stage/ACQUITTAL_LOG.jsonl` for a line whose `run_id` matches the **current** `run_id` AND `backend` ∈ {codex, manual} AND `verdict` ∈ {"ready", "almost"} AND `score` >= 6. If such an acquittal exists: stop. Otherwise: continue to next round — the copilot verdict counts as a "passing drive" but does not terminate the loop alone, and copilot NEVER writes an acquittal line itself.
+
+**Why `ACQUITTAL_LOG.jsonl` instead of `REVIEW_STATE.json`:** `REVIEW_STATE.json` is overwritten every round (only the latest state matters per the state contract). A prior run's completed state with a codex/manual positive verdict is obliterated when the current run's first round is written. The append-only `ACQUITTAL_LOG.jsonl` is never overwritten — but each entry carries a `run_id`, and only entries whose `run_id` matches the current invocation count. A stale acquittal from a prior run (different `run_id`) is an audit artifact, not a valid stop signal for the current run.
 
 This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
@@ -559,7 +588,13 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 - Difficulty: [medium/hard/nightmare]
 ```
 
-**Write `review-stage/REVIEW_STATE.json`** with current round, threadId, score, verdict, and any pending experiments.
+**Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, threadId, score, verdict, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
+
+**If `REVIEWER_BACKEND ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
+```
+{"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"trace_<YYYYMMDD>_run<NN>","timestamp":"<ISO8601>"}
+```
+Use `>>` (append), never `>`. The `trace_id` must reference the trace artifact written per Review Tracing protocol for this round's reviewer call.
 
 **Append to `findings.md`** (when `COMPACT = true`): one-line entry per key finding this round:
 
@@ -646,3 +681,63 @@ be passed back to you next round."
 ## Review Tracing
 
 After each reviewer call (`mcp__codex__codex`, `mcp__codex__codex-reply`, `mcp__manual_review__review`, `mcp__manual_review__review_reply`, `copilot --agent` subprocess for copilot backend), save the trace following `shared-references/review-tracing.md` (Policy C — forensic; never silently skip). Use `save_trace.sh` (resolved per the chain in `shared-references/integration-contract.md` §2) or write files directly to `.aris/traces/<skill>/<date>_run<NN>/`. Respect the `--- trace:` parameter (default: `full`).
+
+## Acquittal Gate Test Specifications
+
+The following test cases validate the `run_id` + append-only acquittal receipt mechanism. These must be verified before merging changes to the stop-evaluation gate.
+
+### Test 1: Fresh Start — No Acquittal, Copilot Positive
+
+**Setup:** Delete `review-stage/REVIEW_STATE.json` and `review-stage/ACQUITTAL_LOG.jsonl`. Run with `--reviewer: copilot --executor-model claude-sonnet-4-5`.
+
+**Action:** Copilot round 1 returns score=7, verdict="ready".
+
+**Expected:** Loop does NOT stop. Acquttal check scans `ACQUITTAL_LOG.jsonl` for run_id match — file is empty. Copilot verdict alone cannot terminate. Continue to next round.
+
+### Test 2: Codex Acquits → Copilot Stops (Same Run)
+
+**Setup:** Fresh start. Round 1: `REVIEWER_BACKEND=codex`, returns score=7, verdict="ready".
+
+**Action A:** Phase E writes acquittal line to `ACQUITTAL_LOG.jsonl` with current `run_id`. Loop stops. Simulate user re-entering: resume state, switch reviewer to copilot for round 2.
+
+**Action B:** Copilot round 2 returns score=8, verdict="ready". Stop gate scans `ACQUITTAL_LOG.jsonl` → finds line with matching `run_id`, `backend=codex`, `verdict=ready`, `score=7`. Match: stop.
+
+**Expected:** Copilot-issued verdict terminates because a same-run codex acquittal exists in the append-only log.
+
+### Test 3: Stale Completed State — Old Run's Acquittal Does NOT Satisfy New Run
+
+**Setup:** Run 1 (run_id=`run_20260713_aaaaaaaa`) completes with `status: "completed"` and writes acquittal: `{"run_id":"run_20260713_aaaaaaaa","backend":"codex","verdict":"ready","score":7}` to `ACQUITTAL_LOG.jsonl`. Then a fresh-start invocation generates run_id=`run_20260713_bbbbbbbb` and begins with `REVIEWER_BACKEND=copilot`.
+
+**Action:** Copilot round 1 returns score=7, verdict="ready". Stop gate scans `ACQUITTAL_LOG.jsonl`.
+
+**Expected:** Loop does NOT stop. The acquittal line has `run_id=run_20260713_aaaaaaaa` which does NOT match the current `run_id=run_20260713_bbbbbbbb`. Only a current-run acquittal counts.
+
+### Test 4: Legacy State File — No run_id Field
+
+**Setup:** Create a `REVIEW_STATE.json` with `status: "in_progress"`, a fresh timestamp, but NO `run_id` field (simulating pre-fix state). Resume.
+
+**Expected:** Initialization detects missing `run_id` and generates one. Log message: "No run_id in legacy state file; assigned run_<...> for this resume." Subsequent acquittal checks use the newly generated run_id.
+
+### Test 5: Copilot NEVER Writes Acquittal
+
+**Setup:** Fresh start with `REVIEWER_BACKEND=copilot`. Copilot returns score=8, verdict="ready" in round 3.
+
+**Action:** Phase E runs.
+
+**Expected:** `ACQUITTAL_LOG.jsonl` is NOT appended to. Only `codex` or `manual` backends write acquittal lines. The copilot verdict is recorded in `REVIEW_STATE.json` and `AUTO_REVIEW.md` but does not create an acquittal receipt.
+
+### Test 6: Append-Only Integrity
+
+**Setup:** Run with codex backend producing three rounds: round 1 (score=5), round 2 (score=7, "ready"), round 3 (score=8, "ready").
+
+**Action:** After the loop, inspect `ACQUITTAL_LOG.jsonl`.
+
+**Expected:** File contains exactly 2 lines (round 2 and round 3 acquittals), each with the same `run_id`. Lines are never overwritten or deleted. File size monotonically increases.
+
+### Test 7: Manual Backend Acquittal Works Same as Codex
+
+**Setup:** Fresh start with `REVIEWER_BACKEND=manual`. Manual review returns score=7, verdict="ready".
+
+**Action:** Phase E appends to `ACQUITTAL_LOG.jsonl`.
+
+**Expected:** Acquittal line with `backend=manual` is written. A subsequent copilot round in the same run would find this acquittal and stop.
