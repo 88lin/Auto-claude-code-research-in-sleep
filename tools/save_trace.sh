@@ -36,6 +36,8 @@ set -euo pipefail
 # --- Parse arguments ---
 SKILL="" PURPOSE="" MODEL="" THREAD_ID="" PROMPT="" RESPONSE=""
 PROMPT_FILE="" RESPONSE_FILE="" TRACE_MODE="${ARIS_TRACE_MODE:-full}" EFFORT="" FALLBACK_REASON="" STATUS="ok"
+BACKEND="" TOOL="" EXECUTOR="" EXECUTOR_MODEL="" EXECUTOR_FAMILY="" REVIEWER_PROFILE="" REVIEWER_FAMILY="" INDEPENDENCE_VERIFIED=""
+REQUESTED_REVIEWER_MODEL="" REPORTED_REVIEWER_MODEL="" MEMORY_HASH=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,6 +53,17 @@ while [[ $# -gt 0 ]]; do
     --prompt-file) PROMPT_FILE="$2";   shift 2 ;;
     --response-file) RESPONSE_FILE="$2"; shift 2 ;;
     --trace-mode)  TRACE_MODE="$2";    shift 2 ;;
+    --backend)            BACKEND="$2";            shift 2 ;;
+    --tool)               TOOL="$2";               shift 2 ;;
+    --executor)           EXECUTOR="$2";           shift 2 ;;
+    --executor-model)     EXECUTOR_MODEL="$2";     shift 2 ;;
+    --executor-family)    EXECUTOR_FAMILY="$2";    shift 2 ;;
+    --reviewer-profile)   REVIEWER_PROFILE="$2";   shift 2 ;;
+    --reviewer-family)    REVIEWER_FAMILY="$2";    shift 2 ;;
+    --requested-reviewer-model) REQUESTED_REVIEWER_MODEL="$2"; shift 2 ;;
+    --reported-reviewer-model)  REPORTED_REVIEWER_MODEL="$2";  shift 2 ;;
+    --independence-verified) INDEPENDENCE_VERIFIED="$2"; shift 2 ;;
+    --memory-hash)        MEMORY_HASH="$2";        shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done
@@ -97,11 +110,19 @@ mkdir -p "$RUN_DIR"
 # --- Create run.meta.json if it doesn't exist ---
 if [[ ! -f "${RUN_DIR}/run.meta.json" ]]; then
   ST_SKILL="$SKILL" ST_RUN_ID="$RUN_ID" ST_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  ST_PROJ="$(pwd)" ST_OUT="${RUN_DIR}/run.meta.json" python3 -c '
+  ST_PROJ="$(pwd)" ST_OUT="${RUN_DIR}/run.meta.json" \
+  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_BACKEND="$BACKEND" python3 -c '
 import json, os
 e = os.environ
 json.dump({"skill": e["ST_SKILL"], "run_id": e["ST_RUN_ID"],
-           "started_at": e["ST_STARTED"], "project_dir": e["ST_PROJ"]},
+           "started_at": e["ST_STARTED"],
+           "executor": e.get("ST_EXECUTOR") or "claude-code",
+           "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+           "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+           "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
+           "reviewer_backend": e.get("ST_REVIEWER_BACKEND") or None,
+           "project_dir": e["ST_PROJ"]},
           open(e["ST_OUT"], "w"), indent=2)
 '
 fi
@@ -118,18 +139,40 @@ if [[ "$TRACE_MODE" == "full" ]]; then
   # values pass via env — never interpolated into python source (quote/injection safety)
   ST_CALL_NUM="$CALL_NUM" ST_PURPOSE="$PURPOSE" ST_TIMESTAMP="$TIMESTAMP" \
   ST_MODEL="$MODEL" ST_EFFORT="$EFFORT" ST_FALLBACK="$FALLBACK_REASON" ST_STATUS="$STATUS" \
+  ST_TOOL="$TOOL" ST_BACKEND="$BACKEND" \
+  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
+  ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
+  ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+  ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os, sys
 e = os.environ
+effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
+iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
+if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+    iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
     "timestamp": e["ST_TIMESTAMP"],
-    "tool": "mcp__codex__codex",
+    "tool": e.get("ST_TOOL") or "mcp__codex__codex",
+    "backend": e.get("ST_BACKEND") or "codex",
     "model": e["ST_MODEL"],
     "effort": e["ST_EFFORT"],
+    "effort_unpinned": effort_unpinned,
     "fallback_reason": e["ST_FALLBACK"],
     "status": e["ST_STATUS"],
+    "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
+    "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
+    "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
+    "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "independence_verified": iv,
+    "memory_hash": e.get("ST_MEMORY_HASH") or None,
     "prompt": sys.stdin.read(),
 }
 json.dump(data, open(e["ST_OUT"], "w"), indent=2, ensure_ascii=False)
@@ -142,20 +185,42 @@ else
   ST_CALL_NUM="$CALL_NUM" ST_PURPOSE="$PURPOSE" ST_TIMESTAMP="$TIMESTAMP" \
   ST_MODEL="$MODEL" ST_EFFORT="$EFFORT" ST_FALLBACK="$FALLBACK_REASON" ST_STATUS="$STATUS" \
   ST_PLEN="${#PROMPT}" ST_RLEN="${#RESPONSE}" \
+  ST_TOOL="$TOOL" ST_BACKEND="$BACKEND" \
+  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
+  ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
+  ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+  ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os
 e = os.environ
+effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
+iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
+if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+    iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
     "timestamp": e["ST_TIMESTAMP"],
-    "tool": "mcp__codex__codex",
+    "tool": e.get("ST_TOOL") or "mcp__codex__codex",
+    "backend": e.get("ST_BACKEND") or "codex",
     "model": e["ST_MODEL"],
     "effort": e["ST_EFFORT"],
+    "effort_unpinned": effort_unpinned,
     "fallback_reason": e["ST_FALLBACK"],
     "status": e["ST_STATUS"],
     "prompt_length": int(e["ST_PLEN"]),
     "response_length": int(e["ST_RLEN"]),
+    "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
+    "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
+    "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
+    "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "independence_verified": iv,
+    "memory_hash": e.get("ST_MEMORY_HASH") or None,
 }
 json.dump(data, open(e["ST_OUT"], "w"), indent=2)
 '
@@ -165,18 +230,37 @@ fi
 ST_CALL_NUM="$CALL_NUM" ST_PURPOSE="$PURPOSE" ST_TIMESTAMP="$TIMESTAMP" \
 ST_THREAD="$THREAD_ID" ST_MODEL="$MODEL" ST_EFFORT="$EFFORT" \
 ST_FALLBACK="$FALLBACK_REASON" ST_STATUS="$STATUS" \
+ST_BACKEND="$BACKEND" ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
+ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
+ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+ST_MEMORY_HASH="$MEMORY_HASH" \
 ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.meta.json" python3 -c '
 import json, os
 e = os.environ
+effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
+iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
+if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+    iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
     "timestamp": e["ST_TIMESTAMP"],
-    "thread_id": e["ST_THREAD"],
+    "thread_id": e["ST_THREAD"] or None,
     "model": e["ST_MODEL"],
+    "model_family": e.get("ST_REVIEWER_FAMILY") or None,
     "effort": e["ST_EFFORT"],
+    "effort_unpinned": effort_unpinned,
     "fallback_reason": e["ST_FALLBACK"],
     "status": e["ST_STATUS"],
+    "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
+    "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "independence_verified": iv,
+    "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
+    "memory_hash": e.get("ST_MEMORY_HASH") or None,
 }
 json.dump(data, open(e["ST_OUT"], "w"), indent=2)
 '
@@ -185,15 +269,32 @@ json.dump(data, open(e["ST_OUT"], "w"), indent=2)
 EVENTS_FILE=".aris/meta/events.jsonl"
 if [[ -d ".aris/meta" ]]; then
   ST_SKILL="$SKILL" ST_PURPOSE="$PURPOSE" ST_THREAD="$THREAD_ID" \
-  ST_TRACE="${RUN_DIR}/" ST_STATUS="$STATUS" ST_EVENTS="$EVENTS_FILE" python3 -c '
+  ST_TRACE="${RUN_DIR}/" ST_STATUS="$STATUS" ST_EVENTS="$EVENTS_FILE" \
+  ST_BACKEND="$BACKEND" ST_TOOL="$TOOL" \
+  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" \
+  ST_MEMORY_HASH="$MEMORY_HASH" \
+  ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" python3 -c '
 import json, os
 e = os.environ
+effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
+iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
+if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+    iv = "unverified"
 evt = {
     "event": "review_trace",
     "skill": e["ST_SKILL"],
     "purpose": e["ST_PURPOSE"],
-    "thread_id": e["ST_THREAD"],
+    "thread_id": e["ST_THREAD"] or None,
     "trace_path": e["ST_TRACE"],
+    "backend": e.get("ST_BACKEND") or None,
+    "tool": e.get("ST_TOOL") or None,
+    "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
+    "effort_unpinned": effort_unpinned,
+    "independence_verified": iv,
+    "memory_hash": e.get("ST_MEMORY_HASH") or None,
     "status": e["ST_STATUS"],
 }
 with open(e["ST_EVENTS"], "a") as f:

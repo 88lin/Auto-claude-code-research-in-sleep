@@ -9,7 +9,7 @@ Save full prompt/response pairs for every cross-model reviewer call, enabling:
 
 ## When to Trace
 
-After **every** `mcp__codex__codex` or `mcp__codex__codex-reply` call that serves a reviewer/critique function. This includes review scoring, experiment auditing, claim verification, idea critique, and patch gating.
+After **every** `mcp__codex__codex`, `mcp__codex__codex-reply`, `copilot --agent` (copilot backend), `mcp__manual_review__review`, or `mcp__manual_review__review_reply` call that serves a reviewer/critique function. This includes review scoring, experiment auditing, claim verification, idea critique, and patch gating.
 
 Do NOT trace: purely informational LLM calls (e.g., `codex exec` for code generation that is not a review).
 
@@ -56,6 +56,13 @@ if [ -n "$TRACE_HELPER" ]; then
     --fallback-reason "<why the capability chain stepped down; empty when it didn't>" \
     --status "<ok | fallback_used | error>" \
     --thread-id "<threadId from response>" \
+    --backend "<codex | copilot | manual | oracle-pro | agy>" \
+    --tool "<mcp__codex__codex | copilot --agent | mcp__manual_review__review | ...>" \
+    --executor-model "<from --executor-model; unavailable if not set>" \
+    --executor-family "<openai | anthropic | google | unknown>" \
+    --reviewer-profile "<profile name for copilot backend; empty for others>" \
+    --reviewer-family "<openai | anthropic | google | unknown>" \
+    --independence-verified "<true | false>" \
     --prompt "<full prompt as sent>" \
     --response "<full response content>"
 else
@@ -90,9 +97,19 @@ when the helper is unreachable — the trace is forensic evidence, so
   "run_id": "2026-04-15_run01",
   "started_at": "2026-04-15T14:30:00+08:00",
   "executor": "claude-code",
+  "executor_model": "claude-sonnet-4-5",
+  "executor_family": "anthropic",
+  "reviewer_family": "openai",
+  "reviewer_backend": "codex",
   "project_dir": "/path/to/project"
 }
 ```
+
+- `executor`: the name of the running executor (from `--executor` parameter; defaults to `"claude-code"`). Dynamic — set by the caller, not hardcoded.
+- `executor_model`: the model running this ARIS invocation (from `--executor-model` parameter when available; otherwise `"unavailable"`).
+- `executor_family`: derived from `executor_model` (`openai` / `anthropic` / `google` / `unknown`).
+- `reviewer_family`: the reviewer model's family, determined at spawn time from the reviewer backend's active model.
+- `reviewer_backend`: `codex` / `copilot` / `manual` / `oracle-pro` / `agy` — the backend used for review calls.
 
 ### `NNN-<purpose>.request.json`
 ```json
@@ -101,12 +118,49 @@ when the helper is unreachable — the trace is forensic evidence, so
   "purpose": "round-1-review",
   "timestamp": "2026-04-15T14:31:00+08:00",
   "tool": "mcp__codex__codex",
+  "backend": "codex",
   "model": "gpt-5.6-sol",
   "config": {"model_reasoning_effort": "xhigh"},
+  "reviewer_profile": null,
   "files_referenced": ["paper/sections/3_method.tex", "results/table1.csv"],
   "prompt": "<full prompt text>"
 }
 ```
+
+For copilot backend (`--reviewer: copilot`):
+```json
+{
+  "call_number": 1,
+  "purpose": "round-1-review",
+  "timestamp": "2026-04-15T14:31:00+08:00",
+  "tool": "copilot --agent",
+  "backend": "copilot",
+  "model": "gpt-5.4",
+  "effort_unpinned": true,
+  "config": {},
+  "reviewer_profile": "aris-reviewer-openai",
+  "requested_reviewer_model": "gpt-5.4",
+  "reported_reviewer_model": null,
+  "executor_model": "claude-sonnet-4-5",
+  "executor_family": "anthropic",
+  "reviewer_family": "openai",
+  "independence_verified": true,
+  "files_referenced": ["paper/sections/3_method.tex", "results/table1.csv"],
+  "prompt": "<full prompt text>"
+}
+```
+
+Fields:
+- `tool`: the tool name used (`mcp__codex__codex`, `copilot --agent`, `mcp__manual_review__review`, etc.).
+- `backend`: the logical backend (`codex`, `copilot`, `manual`, `oracle-pro`, `agy`).
+- `effort_unpinned`: `true` when the backend cannot pin reasoning effort (copilot profiles have no effort control); `false` otherwise.
+- `reviewer_profile`: for copilot, the custom agent profile name (e.g., `aris-reviewer-openai`); `null` for other backends.
+- `requested_reviewer_model`: the model pinned in the selected profile frontmatter (parsed from `.github/agents/<profile>.agent.md`); `null` when unavailable.
+- `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this information.
+- `executor_model`: from `--executor-model` parameter; `"unavailable"` if not provided.
+- `executor_family`: derived from `executor_model`.
+- `reviewer_family`: the reviewer's model family (`openai` / `anthropic` / `google` / `unknown`).
+- `independence_verified`: derived from actual executor and reviewer model families — `true` when `executor_family != reviewer_family` and both are known; `false` otherwise; `"unverified"` when families are not both available to derive.
 
 ### `NNN-<purpose>.response.md`
 The reviewer's full response, verbatim. No truncation, no summarization.
@@ -119,10 +173,44 @@ The reviewer's full response, verbatim. No truncation, no summarization.
   "timestamp": "2026-04-15T14:33:00+08:00",
   "thread_id": "019d8fe0-b25d-...",
   "model": "gpt-5.6-sol",
+  "model_family": "openai",
+  "executor_family": "anthropic",
+  "independence_verified": true,
+  "reviewer_profile": null,
   "duration_ms": 142000,
   "status": "ok"
 }
 ```
+
+For copilot backend:
+```json
+{
+  "call_number": 1,
+  "purpose": "round-1-review",
+  "timestamp": "2026-04-15T14:33:00+08:00",
+  "thread_id": null,
+  "model": "gpt-5.4",
+  "model_family": "openai",
+  "effort_unpinned": true,
+  "executor_family": "anthropic",
+  "requested_reviewer_model": "gpt-5.4",
+  "reported_reviewer_model": null,
+  "independence_verified": true,
+  "reviewer_profile": "aris-reviewer-openai",
+  "duration_ms": 142000,
+  "status": "ok"
+}
+```
+
+Fields new per this fix:
+- `model_family`: `openai` / `anthropic` / `google` / `unknown` — derived from the model that actually ran.
+- `effort_unpinned`: `true` when the backend cannot pin reasoning effort (copilot backend); `false` otherwise.
+- `executor_family`: from `--executor-model` derivation (copilot) or executor introspection (other backends); `"unavailable"` if not known.
+- `requested_reviewer_model`: the model pinned in the selected profile frontmatter; `null` when not available.
+- `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this.
+- `independence_verified`: derived from actual executor and reviewer families — `true` only when they differ and both are known; `false` if same-family; `"unverified"` if families cannot be resolved.
+- `reviewer_profile`: for copilot backend only, the custom agent profile name; `null` for other backends.
+- `memory_hash`: SHA-256 of `REVIEWER_MEMORY.md` at trace time; `null` when no memory file exists.
 
 ## Configuration
 
@@ -136,7 +224,7 @@ Tracing respects three modes, set via inline parameter `--- trace: off | meta | 
 After writing a trace, append a compact summary event to `.aris/meta/events.jsonl`:
 
 ```json
-{"event":"review_trace","skill":"auto-review-loop","purpose":"round-1-review","thread_id":"...","trace_path":".aris/traces/auto-review-loop/2026-04-15_run01/","status":"ok"}
+{"event":"review_trace","skill":"auto-review-loop","purpose":"round-1-review","thread_id":"...","trace_path":".aris/traces/auto-review-loop/2026-04-15_run01/","backend":"copilot","tool":"copilot --agent","executor_family":"anthropic","reviewer_family":"openai","independence_verified":true,"status":"ok"}
 ```
 
 This allows `/meta-optimize` to discover traces without reading the full trace files.

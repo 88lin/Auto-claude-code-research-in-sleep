@@ -80,6 +80,19 @@ resolve_local() {
     fi
 }
 
+# Resolve the agents directory corresponding to the local skills directory.
+resolve_local_agents() {
+    if $HAS_CUSTOM_LOCAL; then
+        echo "$CUSTOM_LOCAL/../agents"
+    elif [[ "$MODE" == "project" ]]; then
+        local p
+        p="$(cd "$PROJECT_PATH" 2>/dev/null && pwd)" || die "project path not found: $PROJECT_PATH"
+        echo "$p/.github/agents"
+    else
+        echo "$HOME/.copilot/agents"
+    fi
+}
+
 # Compute SHA-256 of a file (portable across GNU/BSD)
 file_sha256() {
     if command -v sha256sum >/dev/null 2>&1; then
@@ -274,6 +287,54 @@ if (( ${#NEW[@]} > 0 )); then
     done
 fi
 
+# --- Agent profile deployment ---
+UPSTREAM_AGENTS_DIR="$REPO_ROOT/.github/agents"
+LOCAL_AGENTS_DIR="$(resolve_local_agents)"
+AGENTS_UPDATED=0
+AGENTS_NEW=0
+
+if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
+    log ""
+    log "Agent profiles:"
+    log "  Upstream:  $UPSTREAM_AGENTS_DIR"
+    log "  Local:     $LOCAL_AGENTS_DIR"
+    log ""
+
+    mkdir -p "$LOCAL_AGENTS_DIR"
+
+    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
+        [[ -f "$agent_file" ]] || continue
+        agent_name="$(basename "$agent_file")"
+        local_agent="$LOCAL_AGENTS_DIR/$agent_name"
+
+        if [[ ! -f "$local_agent" ]]; then
+            if $APPLY; then
+                cp "$agent_file" "$local_agent"
+                log "  + agent $agent_name"
+            fi
+            AGENTS_NEW=$((AGENTS_NEW + 1))
+        else
+            # Check if upstream differs from local
+            if ! cmp -s "$agent_file" "$local_agent"; then
+                if $APPLY; then
+                    cp "$agent_file" "$local_agent"
+                    log "  ~ agent $agent_name"
+                fi
+                AGENTS_UPDATED=$((AGENTS_UPDATED + 1))
+            fi
+        fi
+    done
+
+    if ! $APPLY; then
+        if (( AGENTS_NEW + AGENTS_UPDATED > 0 )); then
+            log "Agent profiles: ${AGENTS_NEW} new, ${AGENTS_UPDATED} updatable. Run with --apply to deploy."
+        else
+            log "Agent profiles: up to date."
+        fi
+    fi
+fi
+
 log ""
 log "Done. ${#UPDATED[@]} updated, ${#NEW[@]} added."
+log "Agent profiles: ${AGENTS_UPDATED} updated, ${AGENTS_NEW} new."
 log "Baselines recorded in: $BASELINE_FILE"

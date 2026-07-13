@@ -1,8 +1,8 @@
 ---
 name: auto-review-loop
 description: Autonomous multi-round research review loop. Repeatedly reviews via external reviewer backend (Codex or manual), implements fixes, and re-reviews until positive assessment or max rounds reached. Use when user says "auto review loop", "review until it passes", or wants autonomous iterative improvement.
-argument-hint: "[topic-or-scope]"
-allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Skill, mcp__codex__codex, mcp__codex__codex-reply, mcp__manual_review__review, mcp__manual_review__review_reply
+argument-hint: [topic-or-scope]
+allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Skill, Task, mcp__codex__codex, mcp__codex__codex-reply, mcp__manual_review__review, mcp__manual_review__review_reply
 ---
 
 # Auto Review Loop: Autonomous Research Improvement
@@ -26,7 +26,7 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 - POSITIVE_THRESHOLD: score >= 6/10 **AND** verdict ∈ {"ready", "almost"} — **both** must hold. This matches the operative Phase-E STOP CONDITION exactly; the verdict vocabulary is {"ready", "almost", "not ready"} (a high score with a "not ready" verdict does NOT stop the loop). Earlier wording here used `or` and a stale verdict set ("accept"/"sufficient"/"ready for submission") — that was an internal inconsistency; the `AND` form is authoritative.
 - REVIEW_DOC: `review-stage/AUTO_REVIEW.md` (cumulative log) *(fall back to `./AUTO_REVIEW.md` for legacy projects)*
 - REVIEWER_MODEL = `gpt-5.6-sol` — Default model for the Codex backend. Must be an OpenAI model (e.g., `gpt-5.6-sol`, `o3`, `gpt-4o`). Manual backend uses whatever model the user chooses.
-- **REVIEWER_BACKEND = `codex`** — Default: Codex MCP (xhigh). Override with `— reviewer: oracle-pro` for Oracle MCP, or `— reviewer: manual` for Manual Review MCP. If manual-review MCP is unavailable, stop and print the install command; do not fall back to Codex. See `shared-references/reviewer-routing.md`.
+- **REVIEWER_BACKEND** — Default is `codex` (Codex MCP, xhigh — backward compatible, no change for existing users). Override with `— reviewer: copilot` (explicit Copilot CLI — uses `copilot --agent` subprocess + custom agent profiles, cross-family enforced via opposite-family profile selection, requires `--executor-model`), `— reviewer: oracle-pro` for Oracle MCP, or `— reviewer: manual` for Manual Review MCP. If manual-review MCP is unavailable, stop and print the install command; do not fall back to Codex. See `shared-references/reviewer-routing.md`. **Note:** `COPILOT_CLI` env var does not exist persistently (open proposal, github/copilot-cli#2107). Copilot reviewer is explicit-only until a reliable auto-detection signal ships.
 - **OUTPUT_DIR = `review-stage/`** — All review-stage outputs go here. Create the directory if it doesn't exist.
 - **HUMAN_CHECKPOINT = false** — When `true`, pause after each round's review (Phase B) and present the score + weaknesses to the user. Wait for user input before proceeding to Phase C. The user can: approve the suggested fixes, provide custom modification instructions, skip specific fixes, or stop the loop early. When `false` (default), the loop runs fully autonomously.
 - **COMPACT = false** — When `true`, (1) read `EXPERIMENT_LOG.md` and `findings.md` instead of parsing full logs on session recovery, (2) append key findings to `findings.md` after each round.
@@ -44,6 +44,24 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 ## Reviewer Calling Convention
 
 When calling the reviewer, branch on REVIEWER_BACKEND:
+
+**If REVIEWER_BACKEND = `copilot`:**
+  **Require `--executor-model`:** if not provided → emit `REVIEW_UNAVAILABLE`.
+  **Determine executor family** from `--executor-model` (see reviewer-routing.md).
+  **Router picks opposite-family profile:**
+  - executor_family=openai → profile="aris-reviewer-claude" (anthropic)
+  - executor_family=anthropic → profile="aris-reviewer-openai" (openai)
+  - executor_family=google → profile="aris-reviewer-openai" (openai, default cross)
+  - executor_family=unknown → `REVIEW_UNAVAILABLE` (fail closed).
+  **Verify the profile file** exists at `.github/agents/<profile>.agent.md`.
+  If missing → `REVIEW_UNAVAILABLE`.
+  **Use the `copilot --agent` subprocess** (documented Copilot CLI form)
+  with the selected profile for each review call.
+  **Multi-round:** each round is a fresh `copilot --agent` call with the same
+  profile; reviewer memory is carried via `REVIEWER_MEMORY.md` artifact.
+  If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` (no MCP-dependent
+  fallback — the user chose copilot because they may have no MCP access).
+  See `shared-references/reviewer-routing.md` for the full copilot contract.
 
 **If REVIEWER_BACKEND = `codex`:**
   Use `mcp__codex__codex` for new review threads.
@@ -70,6 +88,12 @@ Long-running loops may hit the context window limit, triggering automatic compac
 {
   "round": 2,
   "threadId": "019cd392-...",
+  "reviewer_profile": "aris-reviewer-openai",
+  "reviewer_backend": "copilot",
+  "executor_model": "claude-sonnet-4-5",
+  "executor_family": "anthropic",
+  "reviewer_family": "openai",
+  "independence_verified": true,
   "status": "in_progress",
   "difficulty": "medium",
   "last_score": 5.0,
@@ -78,6 +102,8 @@ Long-running loops may hit the context window limit, triggering automatic compac
   "timestamp": "2026-03-13T21:00:00"
 }
 ```
+
+When REVIEWER_BACKEND = `copilot`, save `reviewer_profile` (the custom agent profile name used), `executor_model` (from `--executor-model`), `executor_family` (derived), `reviewer_family` (from profile's pinned model), and `independence_verified: true` (confirmed `executor_family != reviewer_family`). Copilot tasks do not return a persistent agent ID — each round is a fresh `task` call with the same profile. For `codex` backend, save `threadId` (Codex MCP thread ID). For `manual` backend, save `threadId` (manual-review thread ID). On resume, use the `reviewer_backend` field to determine the correct continuation mechanism (fresh `task` call with profile for copilot, `codex-reply` for codex, `manual_review_reply` for manual).
 
 **Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest state matters.
 
@@ -99,10 +125,12 @@ Long-running loops may hit the context window limit, triggering automatic compac
    - If it exists AND `status` is `"completed"`: **fresh start** (previous loop finished normally)
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is older than 24 hours: **fresh start** (stale state from a killed/abandoned run — delete the file and start over)
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is within 24 hours: **resume**
-     - Read the state file to recover `round`, `threadId`, `last_score`, `pending_experiments`
+     - Read the state file to recover `round`, `threadId` (or `reviewer_profile` for copilot backend), `reviewer_backend`, `last_score`, `pending_experiments`
+     - **Legacy backward compat**: if `reviewer_backend` is absent from the state file, default to `codex` (pre-copilot-era states did not record this field).
      - Read `review-stage/AUTO_REVIEW.md` to restore full context of prior rounds *(fall back to `./AUTO_REVIEW.md`)*
      - If `pending_experiments` is non-empty, check if they have completed (e.g., check screen sessions)
      - Resume from the next round (round = saved round + 1)
+     - Use `reviewer_backend` to determine continuation: `codex-reply` for codex, fresh `task` call with saved `reviewer_profile` for copilot, `manual_review_reply` for manual
      - Log: "Recovered from context compaction. Resuming at Round N."
 2. Read project narrative documents, memory files, and any prior review documents. **When `COMPACT = true` and compact files exist**: read `findings.md` + `EXPERIMENT_LOG.md` instead of full `review-stage/AUTO_REVIEW.md` and raw logs — saves context window.
 3. Read recent experiment results (check output directories, logs)
@@ -114,7 +142,35 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 #### Phase A: Review
 
-**Route by REVIEWER_DIFFICULTY:**
+**Route by REVIEWER_BACKEND and REVIEWER_DIFFICULTY.**
+
+If REVIEWER_BACKEND = `copilot`, enforce cross-family invariant FIRST:
+- Require `--executor-model <model>` parameter. If missing → `REVIEW_UNAVAILABLE`. Stop.
+- Derive `executor_family` from `executor_model`:
+  - Model names containing `gpt`, `o1`, `o3`, `o4`, `chatgpt` → `openai`
+  - Model names containing `claude`, `sonnet`, `opus`, `haiku` → `anthropic`
+  - Model names containing `gemini` → `google`
+  - Anything else → `unknown`
+- If `executor_family` is `unknown` → `REVIEW_UNAVAILABLE` (fail closed). Stop.
+- Router picks opposite-family profile:
+  - `openai` → `"aris-reviewer-claude"` (anthropic, forced cross-family)
+  - `anthropic` → `"aris-reviewer-openai"` (openai, forced cross-family)
+  - `google` → `"aris-reviewer-openai"` (openai default)
+- Verify the profile file exists at `.github/agents/<profile>.agent.md`.
+  If missing → `REVIEW_UNAVAILABLE`. Stop.
+- Adapt the Codex MCP calls below to use the **`copilot --agent`** subprocess
+  (documented Copilot CLI form):
+  - Replace `mcp__codex__codex` with `copilot --agent "<profile>" --prompt "..."`
+  - Each round is a fresh `copilot --agent` call with the same profile +
+    `REVIEWER_MEMORY.md` artifact carrying round-to-round state.
+  - The prompt text and Review Tracing are identical to the Codex path.
+  - If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` (no MCP fallback).
+  - If `REVIEWER_DIFFICULTY = nightmare`, skip Copilot (nightmare requires Codex
+    exec): emit `REVIEW_UNAVAILABLE`.
+  See `shared-references/reviewer-routing.md`.
+
+**If REVIEWER_BACKEND ∈ {codex, manual}:** use the backend-specific MCP call per the
+Reviewer Calling Convention above. The prompt text is the same regardless of backend.
 
 ##### Medium (default) — MCP Review
 
@@ -245,26 +301,42 @@ Then extract structured fields:
 
 **Skip entirely if `REVIEWER_DIFFICULTY = medium`.**
 
-After parsing the assessment, update `REVIEWER_MEMORY.md` in the project root:
+After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root:
 
 ```markdown
 # Reviewer Memory
 
 ## Round 1 — Score: X/10
+
+### Raw Reviewer Response (verbatim)
+[Paste the COMPLETE raw reviewer response here — never summarized or curated by the executor.]
+
+### Memory Update
+[Reviewer's own memory update section, if provided — verbatim.]
 - **Suspicion**: [what the reviewer flagged]
 - **Unresolved**: [concerns not yet addressed]
 - **Patterns**: [recurring issues the reviewer noticed]
 
+---
+
 ## Round 2 — Score: X/10
+
+### Raw Reviewer Response (verbatim)
+[Paste the COMPLETE raw reviewer response here.]
+
+### Memory Update
 - **Previous suspicions addressed?**: [yes/no for each, with reviewer's judgment]
 - **New suspicions**: [...]
 - **Unresolved**: [carried forward + new]
+
+---
 ```
 
 **Rules**:
-- Append each round, never delete prior rounds (audit trail)
-- If the reviewer's response includes a "Memory update" section, copy it verbatim
-- This file is passed back to the reviewer in the next round's Phase A — it is the reviewer's persistent memory
+- **Append-only — never delete, never truncate.** The file is a reviewer-owned audit trail. The executor must never summarize, curate, or edit prior rounds' content. Append the reviewer's full raw response for this round verbatim, then append a memory update section if the reviewer provided one.
+- Each round's append must be the reviewer's own words — if the reviewer's response includes a "Memory update" section, copy it verbatim as a `## Round N — Memory Update` subsection after the raw response.
+- This file is passed back to the reviewer in the next round's Phase A — it is the reviewer's persistent memory.
+- **Record the file's SHA-256 hash** after each round's append and pass it to `save_trace.sh` via `--memory-hash`. This makes tampering detectable — the trace proves which version of memory was in play for each call.
 - **If the score REGRESSES round-to-round**, don't just write a new memory line:
   diff the two rounds' raw `.response.md` files in `.aris/traces/` first and find
   the exact criterion that flipped (see `shared-references/review-tracing.md`
@@ -298,6 +370,26 @@ Rules for the executor's rebuttal:
 Send the executor's rebuttal back to the reviewer for a ruling:
 
 *Hard mode — use the selected backend for the rebuttal step:*
+
+*For copilot:* fresh `copilot --agent` subprocess with the same profile + REVIEWER_MEMORY.md context:
+```bash
+copilot --agent "<saved-reviewer-profile>" --prompt "[Rebutal ruling — same reviewer]
+
+## Your Memory From Previous Rounds
+[Paste full contents of REVIEWER_MEMORY.md]
+
+The author rebuts your review:
+
+[paste executor's rebuttal]
+
+For each rebuttal, rule:
+- SUSTAINED (author's argument is valid, withdraw this weakness)
+- OVERRULED (your original criticism stands, explain why)
+- PARTIALLY SUSTAINED (revise the weakness to a narrower scope)
+
+Then update your score if any weaknesses were withdrawn.
+Include a Memory Update section at the end of your response."
+```
 
 *For codex:*
 ```
@@ -497,7 +589,8 @@ When loop ends (positive assessment or max rounds):
 - **Large file handling**: If the Write tool fails due to file size, immediately retry using Bash (`cat << 'EOF' > file`) to write in chunks. Do NOT ask the user for permission — just do it silently.
 
 - ALWAYS use `config: {"model_reasoning_effort": "xhigh"}` for maximum reasoning depth
-- Save threadId from first call; use the appropriate reply tool (`mcp__codex__codex-reply` or `mcp__manual_review__review_reply`) for subsequent rounds per the Reviewer Calling Convention
+- **Copilot backend is drive-only (effort-unpinned).** Copilot profiles cannot set reasoning effort. Copilot verdicts are recorded as `effort_unpinned: true` and can iterate the loop, but final acceptance must come from a `codex` or `manual` backend at `xhigh`+ effort. Do not terminate the loop on a copilot-issued positive verdict without an acquitting cross-review.
+- Save `threadId` (codex/manual) or `reviewer_profile` (copilot) from first call; use the appropriate continuation tool for subsequent rounds per the Reviewer Calling Convention
 - **Anti-hallucination citations**: When adding references during fixes, NEVER fabricate BibTeX. Use the same DBLP → CrossRef → `[VERIFY]` chain as `/paper-write`: (1) `curl -s "https://dblp.org/search/publ/api?q=TITLE&format=json"` → get key → `curl -s "https://dblp.org/rec/{key}.bib"`, (2) if not found, `curl -sLH "Accept: application/x-bibtex" "https://doi.org/{doi}"`, (3) if both fail, mark with `% [VERIFY]`. Do NOT generate BibTeX from memory.
 - Be honest — include negative results and failed experiments
 - Do NOT hide weaknesses to game a positive score
@@ -509,9 +602,26 @@ When loop ends (positive assessment or max rounds):
 
 ## Prompt Template for Round 2+
 
-Use the selected backend. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
+Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mmp__manual_review__review_reply` with the saved threadId.
 
 ```
+[For copilot:] copilot --agent "<saved-reviewer-profile>" --prompt "[Round N update]
+
+## Your Memory From Previous Rounds
+[Paste full contents of REVIEWER_MEMORY.md]
+
+Since your last review these files changed — read them yourself; do not
+take my word for what changed or whether it worked:
+- Changed files: <paths>
+- Raw diff: <path, or the `git diff` range>
+- Updated raw results: <result-file paths> (verbatim files, not a pasted table)
+
+Please re-score and re-assess. Are the remaining concerns addressed?
+Same format: Score, Verdict, Remaining Weaknesses, Minimum Fixes.
+
+At the end of your review, include a Memory Update section — this will
+be passed back to you next round."
+
 [For codex:] mcp__codex__codex-reply:
   threadId: [saved from round 1]
   # inherits the thread's model/effort — do not re-send
@@ -530,4 +640,4 @@ Use the selected backend. *For codex:* `mcp__codex__codex-reply` with the saved 
 
 ## Review Tracing
 
-After each reviewer call (`mcp__codex__codex`, `mcp__codex__codex-reply`, `mcp__manual_review__review`, or `mcp__manual_review__review_reply`), save the trace following `shared-references/review-tracing.md` (Policy C — forensic; never silently skip). Use `save_trace.sh` (resolved per the chain in `shared-references/integration-contract.md` §2) or write files directly to `.aris/traces/<skill>/<date>_run<NN>/`. Respect the `--- trace:` parameter (default: `full`).
+After each reviewer call (`mcp__codex__codex`, `mcp__codex__codex-reply`, `mcp__manual_review__review`, `mcp__manual_review__review_reply`, `copilot --agent` subprocess for copilot backend), save the trace following `shared-references/review-tracing.md` (Policy C — forensic; never silently skip). Use `save_trace.sh` (resolved per the chain in `shared-references/integration-contract.md` §2) or write files directly to `.aris/traces/<skill>/<date>_run<NN>/`. Respect the `--- trace:` parameter (default: `full`).

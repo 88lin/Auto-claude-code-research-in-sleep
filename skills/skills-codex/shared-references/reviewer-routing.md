@@ -103,6 +103,12 @@ If reviewer=oracle-pro:
   artifact changes. See `external-cadence.md`.
 - Browser-based Oracle review is acceptable for one-shot stress tests, not ideal for tight multi-round loops.
 
+## Copilot CLI Custom Agent Profiles (`--reviewer: copilot`) — auto-review-loop only
+
+The main `skills/shared-references/reviewer-routing.md` includes a copilot reviewer path scoped to `/auto-review-loop` only. It uses the documented **`copilot --agent`** subprocess with **custom agent profiles** (`aris-reviewer-openai` / `aris-reviewer-claude`) that pin specific models — cross-family is enforced by the router picking the opposite-family profile (requires `--executor-model`). Copilot is an **explicit opt-in** for `/auto-review-loop` (use `--reviewer: copilot`; Codex MCP is the default) with a **mandatory cross-family invariant** (same-family → `REVIEW_UNAVAILABLE`, never "provisional").
+
+**This routing applies to the main skills at `skills/`, not this Codex-mirror pack.** If you are reading this file from `skills/skills-codex/`, you are in the Codex CLI mirror where `spawn_agent` is the native reviewer. For Copilot CLI custom agent profile review, use the main skill set at `skills/` — see the main [`skills/shared-references/reviewer-routing.md`](../../../skills/shared-references/reviewer-routing.md#copilot-cli-custom-agent-profiles---reviewer-copilot--explicit-opt-in-for-auto-review-loop) for the full copilot contract.
+
 ## Skills That Commonly Benefit From `oracle-pro`
 
 - `research-review`
