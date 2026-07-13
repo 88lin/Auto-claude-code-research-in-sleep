@@ -298,7 +298,9 @@ if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
     log "  Local:     $LOCAL_AGENTS_DIR"
     log ""
 
-    mkdir -p "$LOCAL_AGENTS_DIR"
+    if $APPLY; then
+        mkdir -p "$LOCAL_AGENTS_DIR"
+    fi
 
     for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
         [[ -f "$agent_file" ]] || continue

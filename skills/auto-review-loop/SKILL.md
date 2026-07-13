@@ -340,7 +340,12 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 
 #### Phase B.5.1: Stop-Evaluation Gate
 
-**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
+**STOP CONDITION — branch by REVIEWER_BACKEND:**
+
+- **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
+- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict earlier in this same run. To check: scan `review-stage/REVIEW_STATE.json` for a prior round where `reviewer_backend` ∈ {codex, manual} AND `last_verdict` ∈ {"ready", "almost"} AND `last_score` >= 6. If such an acquittal exists: stop. Otherwise: continue to next round — the copilot verdict counts as a "passing drive" but does not terminate the loop alone.
+
+This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
 #### Phase B.6: Debate Protocol (hard + nightmare only)
 
