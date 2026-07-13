@@ -58,6 +58,7 @@ if [ -n "$TRACE_HELPER" ]; then
     --thread-id "<threadId from response>" \
     --backend "<codex | copilot | manual | oracle-pro | agy>" \
     --tool "<mcp__codex__codex | copilot --agent | mcp__manual_review__review | ...>" \
+    --executor "<claude-code | copilot | codex>" \
     --executor-model "<from --executor-model; unavailable if not set>" \
     --executor-family "<openai | anthropic | google | unknown>" \
     --reviewer-profile "<profile name for copilot backend; empty for others>" \

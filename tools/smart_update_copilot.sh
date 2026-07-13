@@ -286,7 +286,7 @@ else
 fi
 
 # --- Agent profile deployment ---
-UPSTREAM_AGENTS_DIR="$REPO_ROOT/.github/agents"
+UPSTREAM_AGENTS_DIR="$(dirname "$UPSTREAM")/.github/agents"
 LOCAL_AGENTS_DIR="$(resolve_local_agents)"
 AGENTS_UPDATED=0
 AGENTS_NEW=0

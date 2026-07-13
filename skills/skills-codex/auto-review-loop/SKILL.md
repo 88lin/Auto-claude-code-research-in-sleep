@@ -149,11 +149,9 @@ Then extract structured fields:
 
 **STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
 
-#### Phase B.5: Reviewer Memory Update (hard + nightmare only)
+#### Phase B.5: Reviewer Memory Update
 
-Skip entirely if `REVIEWER_DIFFICULTY = medium`.
-
-After parsing the assessment, update `review-stage/REVIEWER_MEMORY.md`:
+After parsing the assessment, update `review-stage/REVIEWER_MEMORY.md`. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`:
 
 ## Your Reviewer Memory (persistent across rounds)
 

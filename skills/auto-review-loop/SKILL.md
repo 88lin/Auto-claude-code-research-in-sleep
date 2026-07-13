@@ -1,7 +1,7 @@
 ---
 name: auto-review-loop
 description: Autonomous multi-round research review loop. Repeatedly reviews via external reviewer backend (Codex or manual), implements fixes, and re-reviews until positive assessment or max rounds reached. Use when user says "auto review loop", "review until it passes", or wants autonomous iterative improvement.
-argument-hint: [topic-or-scope]
+argument-hint: "[topic-or-scope]"
 allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Skill, Task, mcp__codex__codex, mcp__codex__codex-reply, mcp__manual_review__review, mcp__manual_review__review_reply
 ---
 
@@ -297,11 +297,9 @@ Then extract structured fields:
 
 **STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
 
-#### Phase B.5: Reviewer Memory Update (hard + nightmare only)
+#### Phase B.5: Reviewer Memory Update
 
-**Skip entirely if `REVIEWER_DIFFICULTY = medium`.**
-
-After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root:
+After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`:
 
 ```markdown
 # Reviewer Memory
@@ -336,7 +334,7 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 - **Append-only — never delete, never truncate.** The file is a reviewer-owned audit trail. The executor must never summarize, curate, or edit prior rounds' content. Append the reviewer's full raw response for this round verbatim, then append a memory update section if the reviewer provided one.
 - Each round's append must be the reviewer's own words — if the reviewer's response includes a "Memory update" section, copy it verbatim as a `## Round N — Memory Update` subsection after the raw response.
 - This file is passed back to the reviewer in the next round's Phase A — it is the reviewer's persistent memory.
-- **Record the file's SHA-256 hash** after each round's append and pass it to `save_trace.sh` via `--memory-hash`. This makes tampering detectable — the trace proves which version of memory was in play for each call.
+- **Record the file's SHA-256 hash before each reviewer call** and pass it to `save_trace.sh` via `--memory-hash`. Hash the memory as supplied to the call (pre-call artifact), not the post-append version, so the trace proves which memory was in play for that invocation.
 - **If the score REGRESSES round-to-round**, don't just write a new memory line:
   diff the two rounds' raw `.response.md` files in `.aris/traces/` first and find
   the exact criterion that flipped (see `shared-references/review-tracing.md`
