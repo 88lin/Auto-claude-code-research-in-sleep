@@ -62,6 +62,9 @@ if [ -n "$TRACE_HELPER" ]; then
     --executor-family "<openai | anthropic | google | unknown>" \
     --reviewer-profile "<profile name for copilot backend; empty for others>" \
     --reviewer-family "<openai | anthropic | google | unknown>" \
+    --requested-reviewer-model "<model originally requested>" \
+    --reported-reviewer-model "<model the backend reports it used>" \
+    --memory-hash "<sha256 of memory artifact if available; empty otherwise>" \
     --independence-verified "<true | false>" \
     --prompt "<full prompt as sent>" \
     --response "<full response content>"

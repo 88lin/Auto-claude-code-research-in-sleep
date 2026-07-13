@@ -247,44 +247,42 @@ if (( ${#NEW[@]} > 0 )); then
 fi
 
 if (( ${#UPDATED[@]} == 0 && ${#NEW[@]} == 0 )); then
-    log "Everything up to date."
-    exit 0
-fi
+    log "Skills up to date."
+else
+    if ! $APPLY; then
+        log "Run with --apply to perform updates."
+        exit 0
+    fi
 
-if ! $APPLY; then
-    log "Run with --apply to perform updates."
-    exit 0
-fi
+    # Apply updates
+    log "Applying updates..."
 
-# Apply updates
-log "Applying updates..."
+    # bash 3.2 (stock macOS): "${ARR[@]}" on an EMPTY array trips `set -u`. Only one of
+    # UPDATED/NEW is guaranteed non-empty here, so each apply loop gets its own length guard.
+    if (( ${#UPDATED[@]} > 0 )); then
+        for name in "${UPDATED[@]}"; do
+            rm -rf "$LOCAL/$name"
+            cp -r "$UPSTREAM/$name" "$LOCAL/$name"
+            # Record new baseline hash
+            if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
+                new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
+                record_baseline "$BASELINE_FILE" "$name" "$new_hash"
+            fi
+            log "  ~ updated $name"
+        done
+    fi
 
-# bash 3.2 (stock macOS): "${ARR[@]}" on an EMPTY array trips `set -u`. Only one of
-# UPDATED/NEW is guaranteed non-empty here (the line-236 early-exit needs BOTH empty),
-# so each apply loop gets its own length guard.
-if (( ${#UPDATED[@]} > 0 )); then
-    for name in "${UPDATED[@]}"; do
-        rm -rf "$LOCAL/$name"
-        cp -r "$UPSTREAM/$name" "$LOCAL/$name"
-        # Record new baseline hash
-        if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
-            new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
-            record_baseline "$BASELINE_FILE" "$name" "$new_hash"
-        fi
-        log "  ~ updated $name"
-    done
-fi
-
-if (( ${#NEW[@]} > 0 )); then
-    for name in "${NEW[@]}"; do
-        cp -r "$UPSTREAM/$name" "$LOCAL/$name"
-        # Record baseline hash for new installs
-        if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
-            new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
-            record_baseline "$BASELINE_FILE" "$name" "$new_hash"
-        fi
-        log "  + added $name"
-    done
+    if (( ${#NEW[@]} > 0 )); then
+        for name in "${NEW[@]}"; do
+            cp -r "$UPSTREAM/$name" "$LOCAL/$name"
+            # Record baseline hash for new installs
+            if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
+                new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
+                record_baseline "$BASELINE_FILE" "$name" "$new_hash"
+            fi
+            log "  + added $name"
+        done
+    fi
 fi
 
 # --- Agent profile deployment ---

@@ -602,7 +602,7 @@ When loop ends (positive assessment or max rounds):
 
 ## Prompt Template for Round 2+
 
-Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mmp__manual_review__review_reply` with the saved threadId.
+Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
 
 ```
 [For copilot:] copilot --agent "<saved-reviewer-profile>" --prompt "[Round N update]

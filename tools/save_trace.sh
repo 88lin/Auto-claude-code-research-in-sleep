@@ -149,9 +149,13 @@ if [[ "$TRACE_MODE" == "full" ]]; then
 import json, os, sys
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot")
-iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
-iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
-if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+# Derive independence from actual families — never trust a caller-provided flag.
+# Same-family reviewers are NOT independent (same org/model lineage).
+ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
+rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
+if ef and rf:
+    iv = (ef != rf)
+else:
     iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
@@ -195,9 +199,13 @@ else
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot")
-iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
-iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
-if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+# Derive independence from actual families — never trust a caller-provided flag.
+# Same-family reviewers are NOT independent (same org/model lineage).
+ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
+rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
+if ef and rf:
+    iv = (ef != rf)
+else:
     iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
@@ -239,9 +247,13 @@ ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.meta.json" python3 -c '
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot")
-iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
-iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
-if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+# Derive independence from actual families — never trust a caller-provided flag.
+# Same-family reviewers are NOT independent (same org/model lineage).
+ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
+rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
+if ef and rf:
+    iv = (ef != rf)
+else:
     iv = "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
@@ -277,9 +289,13 @@ if [[ -d ".aris/meta" ]]; then
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot")
-iv_raw = (e.get("ST_INDEPENDENCE_VERIFIED") or "").lower()
-iv = True if iv_raw == "true" else (False if iv_raw == "false" else None)
-if iv is True and not e.get("ST_REVIEWER_FAMILY") and not e.get("ST_EXECUTOR_FAMILY"):
+# Derive independence from actual families — never trust a caller-provided flag.
+# Same-family reviewers are NOT independent (same org/model lineage).
+ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
+rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
+if ef and rf:
+    iv = (ef != rf)
+else:
     iv = "unverified"
 evt = {
     "event": "review_trace",
