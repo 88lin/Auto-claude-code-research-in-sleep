@@ -117,7 +117,7 @@ When REVIEWER_BACKEND = `copilot`, save `reviewer_profile` (the custom agent pro
 In addition to the overwritable state file, maintain an **append-only** acquittal log at `review-stage/ACQUITTAL_LOG.jsonl`. Each line is a standalone JSON object recording an acquitting positive verdict:
 
 ```jsonl
-{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"trace_id":"trace_20260713_run03","timestamp":"2026-07-13T14:22:00Z"}
+{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"trace_id":"auto-review-loop/2026-07-13_run03","timestamp":"2026-07-13T14:22:00Z"}
 ```
 
 **Rules (non-negotiable):**
@@ -369,8 +369,8 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 
 **STOP CONDITION — branch by REVIEWER_BACKEND:**
 
-- **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → **write an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`** (see Append-Only Acquittal Receipt rules above), then stop loop, document final state.
-- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict **in this same run**. To check: scan `review-stage/ACQUITTAL_LOG.jsonl` for a line whose `run_id` matches the **current** `run_id` AND `backend` ∈ {codex, manual} AND `verdict` ∈ {"ready", "almost"} AND `score` >= 6. If such an acquittal exists: stop. Otherwise: continue to next round — the copilot verdict counts as a "passing drive" but does not terminate the loop alone, and copilot NEVER writes an acquittal line itself.
+- **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. (The acquittal line is recorded in Phase E — this gate decides, Phase E documents. Do NOT write the acquittal line here.)
+- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict **in this same run**. To check: scan `review-stage/ACQUITTAL_LOG.jsonl` for a line whose `run_id` matches the **current** `run_id` AND `backend` ∈ {codex, manual} AND `effort` (case-insensitive) equals `"xhigh"` AND `verdict` ∈ {"ready", "almost"} AND `score` >= 6 AND `trace_id` is non-empty AND the trace directory `.aris/traces/<trace_id>/` exists on disk. If such an acquittal exists: stop. If no same-run acquittal exists AND copilot returned a positive verdict (score >= 6, verdict ∈ {"ready", "almost"}): the loop MUST escalate — schedule the next round to use `codex` backend (or `manual` if codex is unavailable) for a mandatory cross-family acquittal review. Update `reviewer_backend` in `REVIEW_STATE.json` to `codex` (or `manual`) for the escalation round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
 
 **Why `ACQUITTAL_LOG.jsonl` instead of `REVIEW_STATE.json`:** `REVIEW_STATE.json` is overwritten every round (only the latest state matters per the state contract). A prior run's completed state with a codex/manual positive verdict is obliterated when the current run's first round is written. The append-only `ACQUITTAL_LOG.jsonl` is never overwritten — but each entry carries a `run_id`, and only entries whose `run_id` matches the current invocation count. A stale acquittal from a prior run (different `run_id`) is an audit artifact, not a valid stop signal for the current run.
 
@@ -592,9 +592,9 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 
 **If `REVIEWER_BACKEND ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
 ```
-{"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"trace_<YYYYMMDD>_run<NN>","timestamp":"<ISO8601>"}
+{"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
 ```
-Use `>>` (append), never `>`. The `trace_id` must reference the trace artifact written per Review Tracing protocol for this round's reviewer call.
+Use `>>` (append), never `>`. The `trace_id` MUST be the actual trace directory path relative to `.aris/traces/` (e.g., `auto-review-loop/2026-07-13_run01`), matching the RUN_ID format from `save_trace.sh`: `<YYYY-MM-DD>_run<NN>` with the skill-name subdirectory prefix. Do NOT fabricate a synthetic `trace_...` identifier — use the real directory that `save_trace.sh` created for this round's reviewer call.
 
 **Append to `findings.md`** (when `COMPACT = true`): one-line entry per key finding this round:
 
@@ -686,23 +686,21 @@ After each reviewer call (`mcp__codex__codex`, `mcp__codex__codex-reply`, `mcp__
 
 The following test cases validate the `run_id` + append-only acquittal receipt mechanism. These must be verified before merging changes to the stop-evaluation gate.
 
-### Test 1: Fresh Start — No Acquittal, Copilot Positive
+### Test 1: Fresh Start — No Acquittal, Copilot Positive → Escalation
 
-**Setup:** Delete `review-stage/REVIEW_STATE.json` and `review-stage/ACQUITTAL_LOG.jsonl`. Run with `--reviewer: copilot --executor-model claude-sonnet-4-5`.
+**Setup:** Delete `review-stage/REVIEW_STATE.json` and `review-stage/ACQUITTAL_LOG.jsonl`. Run with `--reviewer: copilot --executor-model claude-sonnet-4-5`. No same-run acquittal in `ACQUITTAL_LOG.jsonl`.
 
 **Action:** Copilot round 1 returns score=7, verdict="ready".
 
-**Expected:** Loop does NOT stop. Acquttal check scans `ACQUITTAL_LOG.jsonl` for run_id match — file is empty. Copilot verdict alone cannot terminate. Continue to next round.
+**Expected:** Loop does NOT stop immediately on the copilot verdict alone. Acquittal check scans `ACQUITTAL_LOG.jsonl` for run_id match — file is empty. The escalation path triggers: `reviewer_backend` switches to `codex` for round 2, which performs a mandatory cross-family acquittal review. If codex returns positive, Phase E writes the acquittal line and the loop stops normally. Without escalation, a pure copilot run would iterate until MAX_ROUNDS without ever being able to terminate on a positive verdict.
 
-### Test 2: Codex Acquits → Copilot Stops (Same Run)
+### Test 2: Codex Acquits → Copilot Stops (Same Run, Mixed Backend)
 
-**Setup:** Fresh start. Round 1: `REVIEWER_BACKEND=codex`, returns score=7, verdict="ready".
+**Setup:** Fresh start. Round 1: `REVIEWER_BACKEND=codex`, returns score=7, verdict="ready". Phase E writes acquittal line to `ACQUITTAL_LOG.jsonl` with current `run_id`, `effort: "xhigh"`, valid `trace_id` referencing an existing trace directory under `.aris/traces/auto-review-loop/`. Loop stops with `status: "completed"`. Simulate user re-entering: resume state, switch reviewer to copilot for round 2.
 
-**Action A:** Phase E writes acquittal line to `ACQUITTAL_LOG.jsonl` with current `run_id`. Loop stops. Simulate user re-entering: resume state, switch reviewer to copilot for round 2.
+**Action B:** Copilot round 2 returns score=8, verdict="ready". Stop gate scans `ACQUITTAL_LOG.jsonl` → finds line with matching `run_id`, `backend=codex`, `effort="xhigh"`, `verdict="ready"`, `score=7`, non-empty `trace_id` with existing trace directory. All gate predicates validated: match. Stop.
 
-**Action B:** Copilot round 2 returns score=8, verdict="ready". Stop gate scans `ACQUITTAL_LOG.jsonl` → finds line with matching `run_id`, `backend=codex`, `verdict=ready`, `score=7`. Match: stop.
-
-**Expected:** Copilot-issued verdict terminates because a same-run codex acquittal exists in the append-only log.
+**Expected:** Copilot-issued verdict terminates because a same-run codex acquittal with validated effort and trace exists in the append-only log.
 
 ### Test 3: Stale Completed State — Old Run's Acquittal Does NOT Satisfy New Run
 
@@ -720,11 +718,11 @@ The following test cases validate the `run_id` + append-only acquittal receipt m
 
 ### Test 5: Copilot NEVER Writes Acquittal
 
-**Setup:** Fresh start with `REVIEWER_BACKEND=copilot`. Copilot returns score=8, verdict="ready" in round 3.
+**Setup:** Fresh start with `REVIEWER_BACKEND=copilot`. Copilot returns score=8, verdict="ready" in round 1. The escalation path triggers: `REVIEWER_BACKEND` switches to `codex` for round 2. Codex round 2 returns score=7, verdict="ready".
 
-**Action:** Phase E runs.
+**Action:** After round 1 Phase E: check `ACQUITTAL_LOG.jsonl`. After round 2 Phase E: check `ACQUITTAL_LOG.jsonl`.
 
-**Expected:** `ACQUITTAL_LOG.jsonl` is NOT appended to. Only `codex` or `manual` backends write acquittal lines. The copilot verdict is recorded in `REVIEW_STATE.json` and `AUTO_REVIEW.md` but does not create an acquittal receipt.
+**Expected:** After round 1: `ACQUITTAL_LOG.jsonl` is NOT appended to. Only `codex` or `manual` backends write acquittal lines. After round 2: exactly one acquittal line appears (from the codex escalation round), with `backend=codex`, same `run_id`. The copilot round 1 verdict is recorded in `REVIEW_STATE.json` and `AUTO_REVIEW.md` but did NOT create an acquittal receipt.
 
 ### Test 6: Append-Only Integrity
 
@@ -741,3 +739,13 @@ The following test cases validate the `run_id` + append-only acquittal receipt m
 **Action:** Phase E appends to `ACQUITTAL_LOG.jsonl`.
 
 **Expected:** Acquittal line with `backend=manual` is written. A subsequent copilot round in the same run would find this acquittal and stop.
+
+### Test 8: Pure Copilot Run — Escalation Completes the Loop
+
+**Setup:** Fresh start with `REVIEWER_BACKEND=copilot --executor-model claude-sonnet-4-5`. Copilot round 1 returns score=7, verdict="ready". No prior acquittal in `ACQUITTAL_LOG.jsonl`. MAX_ROUNDS=4.
+
+**Action A:** Stop gate (Phase B.5.1) determines: copilot positive, no same-run acquittal with valid effort/trace → escalation triggered. `reviewer_backend` in `REVIEW_STATE.json` switches to `codex`. Round 2 begins.
+
+**Action B:** Codex round 2 returns score=8, verdict="ready". Stop gate (codex branch): score >= 6, verdict "ready" → stop. Phase E appends acquittal line to `ACQUITTAL_LOG.jsonl` with `effort="xhigh"`, valid `trace_id`.
+
+**Expected:** Loop stops at round 2. `ACQUITTAL_LOG.jsonl` has exactly 1 acquittal line (`backend=codex`). The escalation path is the only mechanism that lets a pure copilot-driven loop terminate on a positive verdict — without it, copilot would iterate until MAX_ROUNDS with no path to a valid acquittal.
