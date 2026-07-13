@@ -31,12 +31,13 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 
 ## Claude-Aligned Reviewer Memory and Debate
 
-For `difficulty: hard` and `difficulty: nightmare`, maintain `review-stage/REVIEWER_MEMORY.md`.
+Maintain `review-stage/REVIEWER_MEMORY.md` in all difficulty modes. Phase B.5 appends the reviewer's raw response and memory update regardless of `REVIEWER_DIFFICULTY`.
 
 - Before each reviewer call, prepend the full `REVIEWER_MEMORY.md` contents under `## Your Reviewer Memory (persistent across rounds)`.
 - Tell the reviewer to check whether prior suspicions were genuinely addressed or merely sidestepped.
 - Require a `Memory update` section in the reviewer response.
 - After Phase B, copy the `Memory update` into `REVIEWER_MEMORY.md` before writing `REVIEW_STATE.json`.
+- For `difficulty: hard` and `difficulty: nightmare`, additionally use the **Debate Protocol** after a critical review.
 - In `nightmare`, launch an additional fresh adversarial reviewer with direct repository/file-reading instructions. It should read `NARRATIVE_REPORT.md` or `review-stage/AUTO_REVIEW.md` for the author's claims, then verify those claims against code, logs, result files, and paper drafts instead of trusting executor summaries.
 
 ## Instructions
@@ -147,8 +148,6 @@ Then extract structured fields:
 - **Verdict** ("ready" / "almost" / "not ready")
 - **Action items** (ranked list of fixes)
 
-**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
-
 #### Phase B.5: Reviewer Memory Update
 
 After parsing the assessment, update `review-stage/REVIEWER_MEMORY.md`. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`:
@@ -179,6 +178,10 @@ Rules:
   find the exact criterion that flipped (see `shared-references/review-tracing.md`
   § *Debugging With Traces*). The memory file is a summary; the trace is evidence.
 - This file is passed back to the reviewer in the next round's Phase A.
+
+#### Phase B.5.1: Stop-Evaluation Gate
+
+**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
 #### Phase B.6: Debate Protocol (hard + nightmare only)
 

@@ -295,8 +295,6 @@ Then extract structured fields:
 - **Verdict** ("ready" / "almost" / "not ready")
 - **Action items** (ranked list of fixes)
 
-**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state.
-
 #### Phase B.5: Reviewer Memory Update
 
 After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`:
@@ -339,6 +337,10 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
   diff the two rounds' raw `.response.md` files in `.aris/traces/` first and find
   the exact criterion that flipped (see `shared-references/review-tracing.md`
   § *Debugging With Traces*). The memory file is a summary; the trace is evidence.
+
+#### Phase B.5.1: Stop-Evaluation Gate
+
+**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
 #### Phase B.6: Debate Protocol (hard + nightmare only)
 

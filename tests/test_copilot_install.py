@@ -530,10 +530,11 @@ def test_smart_update_copilot_deploys_agents(tmp_path: Path) -> None:
     """smart_update_copilot.sh deploys .github/agents/ in copy-mode."""
     upstream = tmp_path / "upstream"
     make_skill(upstream / "alpha", "---\nname: alpha\n---\n# alpha\n")
-    # Agent profiles
+    # Agent profile with a unique name so we can assert it came from this upstream
     upstream_agents = upstream.parent / ".github" / "agents"
     upstream_agents.mkdir(parents=True, exist_ok=True)
-    (upstream_agents / "aris-reviewer-openai.agent.md").write_text("---\nmodel: gpt-5.4\n---\n# openai\n")
+    agent_content = "---\nmodel: gpt-5.4\n---\n# openai custom-upstream-258\n"
+    (upstream_agents / "aris-reviewer-openai.agent.md").write_text(agent_content)
 
     local = tmp_path / "local"
     local.mkdir()
@@ -549,16 +550,15 @@ def test_smart_update_copilot_deploys_agents(tmp_path: Path) -> None:
             "--apply",
         ]
     )
-
-    # Agents directory should have been deployed
-    # resolve_local_agents() for --local <path> resolves to <path>/../agents
-    agents_dir = local.parent / "agents"
-    # But our test layout has upstream agents in a sibling of upstream/, not
-    # in $REPO_ROOT/.github/agents. The script looks at $REPO_ROOT/.github/agents.
-    # For this test, we verify the script's behavior with the actual repo layout.
-    # The agent deployment path in the script uses $REPO_ROOT which is derived
-    # from the script location. We can still verify the logic runs.
     assert result.returncode == 0
+
+    # resolve_local_agents() with --local <path> resolves to <path>/../agents
+    agents_dir = local.parent / "agents"
+    deployed_agent = agents_dir / "aris-reviewer-openai.agent.md"
+    assert deployed_agent.exists(), f"Agent not deployed to {deployed_agent}"
+    assert deployed_agent.read_text() == agent_content, (
+        f"Deployed agent content does not match custom upstream"
+    )
 
 
 def test_install_copilot_reconcile_agents(tmp_path: Path) -> None:
