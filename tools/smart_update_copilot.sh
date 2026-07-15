@@ -272,8 +272,8 @@ if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
     for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
         [[ -f "$agent_file" ]] || continue
         # Resolve symlink and verify it's within the expected directory
-        local resolved; resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
-        local upstream_canon; upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
+        resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
+        upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
         [[ "$resolved" == "$upstream_canon"/* ]] || { warn "skipping external symlink: $agent_file -> $resolved"; continue; }
         agent_name="$(basename "$agent_file")"
         local_agent="$LOCAL_AGENTS_DIR/$agent_name"
@@ -377,8 +377,8 @@ if { (( AGENTS_UPDATED + AGENTS_NEW > 0 )) || ( $FORCE_AGENTS && (( AGENTS_CUSTO
     for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
         [[ -f "$agent_file" ]] || continue
         # Resolve symlink and verify it's within the expected directory
-        local resolved; resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
-        local upstream_canon; upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
+        resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
+        upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
         [[ "$resolved" == "$upstream_canon"/* ]] || { warn "skipping external symlink: $agent_file -> $resolved"; continue; }
         agent_name="$(basename "$agent_file")"
         local_agent="$LOCAL_AGENTS_DIR/$agent_name"
