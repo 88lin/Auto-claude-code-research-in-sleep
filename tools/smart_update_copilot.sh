@@ -130,6 +130,7 @@ record_baseline() {
 UPSTREAM="$(resolve_upstream)"
 LOCAL="$(resolve_local)"
 BASELINE_FILE="$LOCAL/$BASELINE_FILE_NAME"
+AGENT_BASELINE_FILE="$LOCAL/.aris-agent-baselines.sha256"
 
 # Refuse if managed by install_aris_copilot.sh
 if [[ "$MODE" == "project" ]]; then
@@ -252,6 +253,7 @@ UPSTREAM_AGENTS_DIR="$(dirname "$UPSTREAM")/.github/agents"
 LOCAL_AGENTS_DIR="$(resolve_local_agents)"
 AGENTS_UPDATED=0
 AGENTS_NEW=0
+AGENTS_CUSTOMIZED=0
 
 if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
     log ""
@@ -270,8 +272,29 @@ if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
             AGENTS_NEW=$((AGENTS_NEW + 1))
         else
             if ! cmp -s "$agent_file" "$local_agent"; then
-                log "  ~ agent $agent_name (updatable)"
-                AGENTS_UPDATED=$((AGENTS_UPDATED + 1))
+                # Check if local agent was customized by user
+                agent_custom=false
+                local_hash="$(file_sha256 "$local_agent")"
+                agent_baseline_hash="$(get_baseline_hash "$AGENT_BASELINE_FILE" "$agent_name")"
+
+                if [[ -n "$agent_baseline_hash" && -n "$local_hash" ]]; then
+                    if [[ "$local_hash" != "$agent_baseline_hash" ]]; then
+                        agent_custom=true
+                    fi
+                elif [[ -z "$agent_baseline_hash" ]]; then
+                    upstream_hash="$(file_sha256 "$agent_file")"
+                    if [[ -n "$local_hash" && "$local_hash" != "$upstream_hash" ]]; then
+                        agent_custom=true
+                    fi
+                fi
+
+                if $agent_custom; then
+                    AGENTS_CUSTOMIZED=$((AGENTS_CUSTOMIZED + 1))
+                    log "  ~ agent $agent_name (customized — will NOT update)"
+                else
+                    AGENTS_UPDATED=$((AGENTS_UPDATED + 1))
+                    log "  ~ agent $agent_name (updatable)"
+                fi
             fi
         fi
     done
@@ -291,8 +314,8 @@ fi
 # ── --apply dry-run guard: report changes but do NOT apply without --apply (#361 P0) ──
 if ! $APPLY; then
     log "Dry run complete. Use --apply to apply these changes."
-    if (( AGENTS_UPDATED + AGENTS_NEW > 0 )); then
-        log "Agent profiles: ${AGENTS_NEW} new, ${AGENTS_UPDATED} updatable. Run with --apply to deploy."
+    if (( AGENTS_UPDATED + AGENTS_NEW + AGENTS_CUSTOMIZED > 0 )); then
+        log "Agent profiles: ${AGENTS_NEW} new, ${AGENTS_UPDATED} updatable, ${AGENTS_CUSTOMIZED} customized/skipped. Run with --apply to deploy."
     fi
     exit 0
 fi
@@ -338,11 +361,37 @@ if (( AGENTS_UPDATED + AGENTS_NEW > 0 )) && [[ -d "$UPSTREAM_AGENTS_DIR" ]]; the
 
         if [[ ! -f "$local_agent" ]]; then
             cp "$agent_file" "$local_agent"
+            # Record baseline hash for new agent install
+            agent_hash="$(file_sha256 "$local_agent")"
+            record_baseline "$AGENT_BASELINE_FILE" "$agent_name" "$agent_hash"
             log "  + agent $agent_name"
         else
             if ! cmp -s "$agent_file" "$local_agent"; then
-                cp "$agent_file" "$local_agent"
-                log "  ~ agent $agent_name"
+                # Re-run customization check (same logic as detection phase)
+                agent_custom=false
+                local_hash="$(file_sha256 "$local_agent")"
+                agent_baseline_hash="$(get_baseline_hash "$AGENT_BASELINE_FILE" "$agent_name")"
+
+                if [[ -n "$agent_baseline_hash" && -n "$local_hash" ]]; then
+                    if [[ "$local_hash" != "$agent_baseline_hash" ]]; then
+                        agent_custom=true
+                    fi
+                elif [[ -z "$agent_baseline_hash" ]]; then
+                    upstream_hash="$(file_sha256 "$agent_file")"
+                    if [[ -n "$local_hash" && "$local_hash" != "$upstream_hash" ]]; then
+                        agent_custom=true
+                    fi
+                fi
+
+                if $agent_custom; then
+                    warn "agent $agent_name appears customized — skipping (remove $AGENT_BASELINE_FILE entry to force)"
+                else
+                    cp "$agent_file" "$local_agent"
+                    # Record/update baseline hash
+                    agent_hash="$(file_sha256 "$local_agent")"
+                    record_baseline "$AGENT_BASELINE_FILE" "$agent_name" "$agent_hash"
+                    log "  ~ agent $agent_name"
+                fi
             fi
         fi
     done
@@ -350,5 +399,6 @@ fi
 
 log ""
 log "Done. ${#UPDATED[@]} updated, ${#NEW[@]} added."
-log "Agent profiles: ${AGENTS_UPDATED} updated, ${AGENTS_NEW} new."
-log "Baselines recorded in: $BASELINE_FILE"
+log "Agent profiles: ${AGENTS_UPDATED} updated, ${AGENTS_NEW} new, ${AGENTS_CUSTOMIZED} customized/skipped."
+log "Skill baselines recorded in: $BASELINE_FILE"
+log "Agent baselines recorded in: $AGENT_BASELINE_FILE"
