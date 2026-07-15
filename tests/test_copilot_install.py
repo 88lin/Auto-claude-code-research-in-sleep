@@ -170,7 +170,9 @@ def test_install_copilot_reconcile_adds_and_removes(tmp_path: Path) -> None:
     (repo / "skills" / "alpha").rmdir()
     make_skill(repo / "skills" / "delta", "---\nname: delta\ndescription: Delta\n---\n# delta\n")
 
-    # Reconcile
+    # Reconcile. #366 selective install: a plain --quiet reconcile no longer
+    # silently adopts new upstream skills (that would defeat the point of the
+    # new-skill confirmation gate) -- it must be requested via --add-new.
     run(
         [
             "bash",
@@ -179,6 +181,7 @@ def test_install_copilot_reconcile_adds_and_removes(tmp_path: Path) -> None:
             "--aris-repo",
             str(repo),
             "--reconcile",
+            "--add-new",
             "--quiet",
         ]
     )
@@ -406,6 +409,7 @@ def test_smart_update_copilot_copy_install(tmp_path: Path) -> None:
             "--local",
             str(local),
             "--apply",
+            "--add-new",  # NEW skills now require confirmation/--add-new (#366-style policy)
         ]
     )
 
@@ -443,6 +447,7 @@ def test_smart_update_copilot_hash_based_customization(tmp_path: Path) -> None:
             "--local",
             str(local),
             "--apply",
+            "--add-new",  # NEW skills now require confirmation/--add-new (#366-style policy)
         ]
     )
     assert (local / "alpha" / "SKILL.md").read_text() == "---\nname: alpha\n---\n# alpha-v1\n"

@@ -291,8 +291,9 @@ Two outputs: `PASTE_READY.txt` (exact char count, paste to venue) + `REBUTTAL_DR
 
 ## 2. 📢 What's New
 
-- **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **Your paper now gets the reviewer-side forensics treatment before you submit** ([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357)). New `/integrity-forensics` skill: a SHA-pinned thin launcher for [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) — the sweep a hostile reviewer could run (span-anchored evidence ledger, nine auditor dimensions, GRIM/GRIMMER/statcheck numeric core, a rules-only adjudicator) now runs on YOUR paper first, at a strictness external reviewers usually can't match (when `code/` and `results/` are present, it sees them too). Its verdict feeds a typed gate — flags can block a submission, but a clean sweep is recorded as "no new blocker", never as an acquittal — and every obligation-bearing finding only closes with typed, hashed evidence or an explicitly recorded human waiver (rewording the flagged sentence doesn't count, and the ledger notices). `/paper-writing` runs it by default at submission assurance; `— self_forensics: false` opts out (Claude mainline — the Codex-native mirror is opt-in and limited to upstream's deterministic slice, which can flag but never say CLEAN). ⚠️ First run clones and validates the pinned upstream (needs network + a few minutes); run `bash tools/smart_update.sh --apply` to pull.
-- **2026-07-10** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧠 **Reviewer default is now GPT-5.6-Sol; deep audits think at the new `ultra` level** ([#354](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/354)). codex-cli 0.144.1 added reasoning levels above `xhigh` (`max`, `ultra` — `ultra` can also delegate subtasks on its own). ARIS reviews now default to `gpt-5.6-sol`: the seven heavyweight verdicts (`/proof-checker`, `/kill-argument`, `/research-review`, `/experiment-audit`, `/paper-claim-audit`, `/result-to-claim`, `/meta-apply`) run at `ultra`, everything else stays at `xhigh`. Older codex-cli or no model access? Skills step down automatically (5.6-sol `xhigh`, then 5.5 `xhigh`) — but only on those exact errors, never on timeouts, and never below `xhigh`. Also fixed on the way: `/result-to-claim` no longer judges its own results when the reviewer is unreachable — it stops honestly. ⚠️ Upgrade codex-cli to ≥ 0.144.1, restart the session (the MCP server reloads only then), and run `bash tools/smart_update.sh --apply`.
+- **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧩 **Selective install + global helper pointer** ([#366](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/366)). The 80 skills are no longer all-or-nothing: all four installers (`install_aris.sh` / `_codex` / `_copilot` / `.ps1`) support group-based selection — `--list-groups` shows the 10-group catalog ([`tools/skill-groups.tsv`](tools/skill-groups.tsv)), `--groups paper-core,lit-search` installs by group, `--skills X` / `--exclude Y` fine-tune, and a bare TTY run opens a full-screen checkbox picker (Space toggles a skill or a whole group, `a` selects all, Enter confirms; falls back to per-group Y/n/e prompts without python3/curses); hard pipeline deps (the catalog's `requires` column) are auto-included, with a warning if you cut one. **Updates auto-detect the installed set** (the manifest) and NEW upstream skills need per-skill confirmation — declines are remembered in `.aris/skills-declined.txt` and never re-asked (`--add-new` / `--skip-new` for scripting); the `smart_update*` family gets the same treatment for copy installs. Also fixes helper scripts being unresolvable from global copy installs (`~/.claude/skills`): the resolution chain gains a 4th layer — installers/updaters write a pointer file `~/.aris/repo`, consulted when `.aris/tools/` → `tools/` → `$ARIS_REPO/tools/` all miss. ⚠️ Backward compatible: `--quiet` fresh installs still install everything; run any installer/updater once to get the pointer file.
+- **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **Your paper now gets the reviewer-side forensics treatment before you submit** ([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357)). New `/integrity-forensics` skill: a SHA-pinned thin launcher runs [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch)'s hostile-reviewer sweep (evidence ledger, nine auditor dimensions, numeric core, rules-only adjudicator) on your paper first. The verdict feeds a typed gate — flags can block a submission, a clean sweep is recorded as "no new blocker" (never an acquittal) — and findings close only with typed, hashed evidence or a recorded human waiver (rewording the flagged sentence doesn't count; the ledger notices). `/paper-writing` runs it by default at submission assurance (`— self_forensics: false` opts out; the Codex mirror is opt-in and limited to upstream's deterministic slice, which can flag but never say CLEAN). ⚠️ First run clones and validates the pinned upstream (needs network); run `bash tools/smart_update.sh --apply`.
+- **2026-07-10** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧠 **Reviewer default is now GPT-5.6-Sol; deep audits think at the new `ultra` level** ([#354](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/354)). codex-cli 0.144.1 added `max`/`ultra` reasoning above `xhigh`; ARIS reviews now default to `gpt-5.6-sol`, with the seven heavyweight verdicts (`/proof-checker`, `/kill-argument`, `/research-review`, `/experiment-audit`, `/paper-claim-audit`, `/result-to-claim`, `/meta-apply`) at `ultra` and everything else at `xhigh`. Older codex-cli or no model access steps down automatically (5.6-sol → 5.5, both `xhigh`) — never below `xhigh`, never on a mere timeout. Also fixed: `/result-to-claim` now stops honestly instead of judging its own results when the reviewer is unreachable. ⚠️ Upgrade codex-cli to ≥ 0.144.1, restart the session (MCP reloads only then), and run `bash tools/smart_update.sh --apply`.
 - **2026-07-03** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧬 **Three small updates adapted from Anthropic's Claude Science skills** ([#339](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/339), [#340](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/340), [#341](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/341); Apache-2.0). ARIS now has one shared way to describe GPU environments, so the same setup can be reused across SSH machines, Modal, and clusters, then checked by a fresh agent following the setup notes. We also added a small tool that tests whether a skill description actually makes the right skill get picked. Finally, figure and writing checks now separate facts from style: truth checks must pass, style advice stays optional. ⚠️ Run `bash tools/smart_update.sh --apply` to pull.
 - **2026-07-02** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🔁 **Ideas from Karpathy's LOOPS.md, brought into ARIS** ([#333](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/333)–[#337](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/337)). Reviewers now start by looking for what may be wrong, not by giving a polite score. If a review result looks strange, ARIS points you to the saved reviewer transcript before you ask the model again. A failed build can be restarted from the plan instead of endlessly patched, while plans, logs, and results are kept. Scoring can now use real good and bad examples, `/meta-optimize` asks what can be removed, and `/paper-writing` agrees on a clear "done" checklist before drafting starts. ⚠️ Run `bash tools/smart_update.sh --apply` to pull.
 - **2026-06-20** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 📚 **Research wiki: all four node layers now have deterministic writers — fixes "re-generated ideas not recorded"** ([#305](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/305), [#306](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/306), [#307](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/307), [#308](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/308)). A user hit a real bug — ideas recorded on the first `/idea-creator` run vanished on re-generation — because wiki pages were written **freehand**, a prose step the model skips on a re-prompt. Each layer now has a dedicated `research_wiki.py` writer joining `ingest_paper`: **`add_claim`** (claims born at [`/proof-checker`](skills/proof-checker/SKILL.md)), **`upsert_idea`** ([`/idea-creator`](skills/idea-creator/SKILL.md)), **`add_experiment`** ([`/result-to-claim`](skills/result-to-claim/SKILL.md)) — each guarded by a drift-check so it can't silently regress to dead code. A claim's `status` is now a strict **proof axis** (`verified`/`refuted`/`unproven`/…) while experiment support is carried by `supports`/`invalidates` **edges** (closing a latent contradiction the shared validator rejected), and the **Codex-CLI skill mirror is synced** to match. **Zero behavior change** when no `research-wiki/` is present.
@@ -398,10 +399,12 @@ Two outputs: `PASTE_READY.txt` (exact char count, paste to venue) + `REBUTTAL_DR
 git clone https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep.git
 bash Auto-claude-code-research-in-sleep/tools/install_aris.sh ~/your-project   # symlinks ARIS skills into <project>/.claude/skills/
 # (prefer a global install instead? cp -r Auto-claude-code-research-in-sleep/skills/* ~/.claude/skills/)
+# (don't need all 80? --list-groups / --groups X,Y / --skills X — see "Selective install" below)
 
 # 1b. Update later (when upstream changes)
 cd Auto-claude-code-research-in-sleep && git pull
 bash tools/smart_update.sh --apply   # updates safe skills, flags your personal customizations
+# (NEW upstream skills need confirmation — --add-new to accept all non-interactively)
 
 # Optional Codex mirror managed project install
 bash tools/install_aris_codex.sh ~/your-codex-project
@@ -493,7 +496,7 @@ cd Auto-claude-code-research-in-sleep && ls skills/ | xargs -I{} rm -rf ~/.claud
 </details>
 
 <details>
-<summary><b>Show all 16 inline parameters and 12 override examples</b> — AUTO_PROCEED / sources / arxiv download / DBLP_BIBTEX / code review / wandb / illustration / venue / base repo / gpu / compact / ref paper / effort / reviewer / difficulty (full per-skill defaults live in <a href="#customization">§ Customization</a>)</summary>
+<summary><b>Show all 16 inline parameters and 14 override examples</b> — AUTO_PROCEED / sources / arxiv download / DBLP_BIBTEX / code review / wandb / illustration / venue / base repo / gpu / compact / ref paper / effort / reviewer / difficulty (full per-skill defaults live in <a href="#customization">§ Customization</a>)</summary>
 
 All pipeline behaviors are configurable via inline overrides — append `— key: value` to any command:
 
@@ -501,7 +504,7 @@ All pipeline behaviors are configurable via inline overrides — append `— key
 |-----------|---------|-------------|
 | `AUTO_PROCEED` | `true` | Auto-continue at idea selection gate. Set `false` to manually pick which idea to pursue before committing GPU time |
 | `human checkpoint` | `false` | Pause after each review round so you can read the score, give custom modification instructions, skip specific fixes, or stop early |
-| `sources` | `all` | Which literature sources to search: `zotero`, `obsidian`, `local`, `web`, `semantic-scholar`, `deepxiv`, `exa`, or `all`. Note: `semantic-scholar`, `deepxiv`, and `exa` must be explicitly listed — not included in `all` |
+| `sources` | `all` | Which literature sources to search: `zotero`, `obsidian`, `local`, `web`, `semantic-scholar`, `deepxiv`, `exa`, `gemini`, `openalex`, or `all`. Note: `semantic-scholar`, `deepxiv`, `exa`, `gemini`, and `openalex` must be explicitly listed — not included in `all` |
 | `arxiv download` | `false` | Download top relevant arXiv PDFs during literature survey. When `false`, only fetches metadata (title, abstract, authors) |
 | `DBLP_BIBTEX` | `true` | Fetch real BibTeX from [DBLP](https://dblp.org)/[CrossRef](https://www.crossref.org) instead of LLM-generated entries. Eliminates hallucinated citations. Zero install |
 | `code review` | `true` | GPT-5.6-Sol xhigh reviews experiment code before GPU deployment. Set `false` to skip |
@@ -522,6 +525,8 @@ All pipeline behaviors are configurable via inline overrides — append `— key
 /research-pipeline "your topic" — sources: zotero, web                         # only search Zotero + web (skip local PDFs)
 /research-pipeline "your topic" — sources: all, deepxiv                        # default sources plus DeepXiv progressive retrieval
 /research-pipeline "your topic" — sources: all, exa                            # default sources plus Exa AI-powered web search
+/research-pipeline "your topic" — sources: all, gemini                         # default sources plus Gemini discovery
+/research-pipeline "your topic" — sources: all, openalex                       # default sources plus OpenAlex citation graph
 /research-pipeline "your topic" — arxiv download: true                         # download top arXiv PDFs during literature survey
 /research-pipeline "your topic" — difficulty: nightmare                        # maximum adversarial review before submission
 /research-pipeline "your topic" — effort: beast                               # all knobs to maximum — top-venue sprint
@@ -531,6 +536,28 @@ All pipeline behaviors are configurable via inline overrides — append `— key
 /research-pipeline "your topic" — AUTO_PROCEED: false, human checkpoint: true  # combine options
 /proof-checker "paper/" — reviewer: oracle-pro                                # Pro-level proof verification
 ```
+
+</details>
+
+<details>
+<summary><b>Sandbox behavior and strict mode</b> — control whether tool-call overrides may change the configured sandbox policy</summary>
+
+The runtime's `sandbox` settings provide a configured baseline, while a tool request may also carry sandbox-related overrides. In the legacy compatibility mode, the effective request can therefore differ from the values written in `settings.json`.
+
+To make the configured policy authoritative, enable `strictMode`:
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "strictMode": true
+  }
+}
+```
+
+With `strictMode: true`, the runtime ignores these LLM-supplied overrides: `dangerouslyDisableSandbox`, `namespaceRestrictions`, `isolateNetwork`, `filesystemMode`, and `allowedMounts`. The configured sandbox policy remains in effect even when a tool call requests a different value. This is opt-in so existing configurations keep their legacy behavior by default.
+
+Run `aris doctor` to inspect the currently reported sandbox state. `strictMode` controls whether tool requests can override the runtime configuration; it does not replace the host operating system's permissions, filesystem protections, or network policy.
 
 </details>
 
@@ -1413,6 +1440,13 @@ cd ~/aris_repo && git pull   # symlinks resolve to live upstream — content upd
 # 3a. To pick up newly added or removed upstream skills, rerun the installer:
 bash ~/aris_repo/tools/install_aris.sh ~/your-paper-project   # adds new symlinks, removes broken ones
 
+# Install only what you need (#366 selective install; a bare TTY run opens a checkbox picker):
+bash ~/aris_repo/tools/install_aris.sh --list-groups                  # show the 10-group catalog
+bash ~/aris_repo/tools/install_aris.sh --groups paper-core,lit-search # install by group
+bash ~/aris_repo/tools/install_aris.sh --skills paper-writing         # by skill; hard pipeline deps auto-included
+bash ~/aris_repo/tools/install_aris.sh --exclude patent-pipeline      # opt out (declined; never re-asked on update)
+# On update, NEW upstream skills need per-skill confirmation; --add-new accepts all / --skip-new skips all
+
 # Other useful flags:
 bash ~/aris_repo/tools/install_aris.sh --dry-run        # show plan, no changes
 bash ~/aris_repo/tools/install_aris.sh --uninstall      # remove only managed symlinks (per manifest)
@@ -1504,7 +1538,8 @@ git pull
 
 # 🧠 Smart update (recommended) — analyzes what's safe to update
 bash tools/smart_update.sh          # dry-run: shows what would change
-bash tools/smart_update.sh --apply  # apply: adds new + updates safe ones
+bash tools/smart_update.sh --apply  # apply: updates safe ones; NEW upstream skills prompt
+                                     # one-by-one on a TTY, or use --add-new / --skip-new
 
 # Manual options (if you prefer):
 # cp -r skills/* ~/.claude/skills/       # Option A: overwrite all

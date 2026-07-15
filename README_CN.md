@@ -265,8 +265,9 @@ ARIS 读论文 → 找弱点 → 克隆代码 → 针对*那些*弱点用*那套
 
 ## 2. 📢 最近更新
 
-- **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **投稿前,你的论文先过一遍审稿人那侧的取证**([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357))。新 skill `/integrity-forensics`:[Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) 的 SHA-pin 薄启动器——敌意审稿人能跑的那套扫描(逐字锚定的证据账本、九个审计维度、GRIM/GRIMMER/statcheck 数值核心、纯规则裁决器)现在先跑在你自己的论文上,而且通常比外部审稿人更严(`code/` 和 `results/` 在场时,它连这些也一起看)。结论进一道 typed gate——flag 能拦下投稿,但"没查出问题"只记作"无新阻断"、永远不算无罪判决;构成义务的 finding 只有带类型、带 hash 的证据、或者人签字的 waiver 才能销项(把被点名的句子改个措辞不算数,台账会记下来)。`/paper-writing` 在 submission 档默认就跑;`— self_forensics: false` 可关(这是 Claude 主线的行为;Codex 镜像是 opt-in,且只能跑上游的确定性切片——能报 flag,永远说不出 CLEAN)。⚠️ 首次运行会克隆并校验 pin 的上游(需要网络,几分钟);跑 `bash tools/smart_update.sh --apply` 拉取更新。
-- **2026-07-10** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧠 **Reviewer 默认换成 GPT-5.6-Sol,深度审计用上新的 `ultra` 档**([#354](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/354))。codex-cli 0.144.1 在 `xhigh` 之上加了 `max`、`ultra` 两档(`ultra` 还会自己分派子任务)。ARIS 的审阅现在默认走 `gpt-5.6-sol`:七个重量级裁决(`/proof-checker`、`/kill-argument`、`/research-review`、`/experiment-audit`、`/paper-claim-audit`、`/result-to-claim`、`/meta-apply`)用 `ultra`,其余一律保持 `xhigh`。codex-cli 版本旧或账号没有这个模型?skill 会自动降级(先 5.6-sol `xhigh`,再 5.5 `xhigh`)——但只在这两种明确报错时降,超时不降,永远不低于 `xhigh`。顺手修了一个问题:`/result-to-claim` 在审稿模型连不上时不再自己给自己的实验下结论,而是诚实停下。⚠️ 升级 codex-cli 到 ≥ 0.144.1,重启 session(MCP server 要重启才生效),然后跑 `bash tools/smart_update.sh --apply`。
+- **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧩 **选择性安装 + 全局脚本指针**([#366](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/366))。80 个 skill 不再"一股脑全装":四套安装器(`install_aris.sh` / `_codex` / `_copilot` / `.ps1`)支持按功能分组选装——`--list-groups` 看 10 个分组目录([`tools/skill-groups.tsv`](tools/skill-groups.tsv)),`--groups paper-core,lit-search` 按组装,`--skills X` / `--exclude Y` 精调,TTY 上不带参数进全屏勾选界面(空格勾选/组行整组切换、`a` 全选、Enter 确认;无 python3/curses 时退回逐组 Y/n/e 问答);pipeline 硬依赖(catalog `requires` 列)自动带全,选断了会警告。**更新时自动侦测已装集合**(manifest),上游**新增**的 skill 逐个二次确认——拒绝的记在 `.aris/skills-declined.txt`,以后不再重复问(`--add-new` / `--skip-new` 供脚本化);copy 安装的 `smart_update*` 系列同样生效。同时修了全局 copy 安装(`~/.claude/skills`)找不到 helper 脚本的问题:解析链加第 4 层——安装/更新时写指针文件 `~/.aris/repo`,`.aris/tools/` → `tools/` → `$ARIS_REPO/tools/` 都不命中时读它定位仓库。⚠️ 向后兼容:`--quiet` 全新安装仍是全装;跑一次任意安装器/更新器即可拿到指针文件。
+- **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **投稿前,你的论文先过一遍审稿人那侧的取证**([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357))。新 skill `/integrity-forensics`:SHA-pin 薄启动器,把 [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) 那套敌意审稿人能跑的扫描(证据账本、九个审计维度、数值核心、纯规则裁决器)先跑在你自己的论文上。结论进一道 typed gate——flag 能拦下投稿,"没查出问题"只记作"无新阻断"、不算无罪判决;finding 只有带类型、带 hash 的证据、或人签字的 waiver 才能销项(把句子改个措辞不算数,台账会记下来)。`/paper-writing` 在 submission 档默认就跑(`— self_forensics: false` 可关;Codex 镜像是 opt-in,且只能跑上游的确定性切片——能报 flag,永远说不出 CLEAN)。⚠️ 首次运行需要联网克隆并校验上游;跑 `bash tools/smart_update.sh --apply` 拉取更新。
+- **2026-07-10** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧠 **Reviewer 默认换成 GPT-5.6-Sol,深度审计用上新的 `ultra` 档**([#354](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/354))。codex-cli 0.144.1 在 `xhigh` 之上加了 `max`、`ultra`;ARIS 审阅默认走 `gpt-5.6-sol`,七个重量级裁决(`/proof-checker`、`/kill-argument`、`/research-review`、`/experiment-audit`、`/paper-claim-audit`、`/result-to-claim`、`/meta-apply`)用 `ultra`,其余保持 `xhigh`。codex-cli 版本旧或没有这个模型会自动降级(5.6-sol → 5.5,均 `xhigh`)——永远不低于 `xhigh`,单纯超时不降级。顺手修了:`/result-to-claim` 审稿模型连不上时诚实停下,不再自判自己的实验。⚠️ 升级 codex-cli 到 ≥ 0.144.1,重启 session,跑 `bash tools/smart_update.sh --apply`。
 - **2026-07-03** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧬 **从 Anthropic 的 Claude Science skills 借来三点小改动**([#339](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/339)、[#340](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/340)、[#341](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/341);Apache-2.0)。ARIS 现在用同一种写法描述 GPU 环境,同一份配置可以用在 SSH 机器、Modal 和集群上,再让一个全新的 agent 按安装说明走一遍来检查。我们也加了一个小工具,用来测试 skill 描述到底能不能让系统选中正确的 skill。最后,图表和写作检查会把"事实是否正确"和"风格是否好看"分开:事实必须过,风格只是建议。⚠️ 运行 `bash tools/smart_update.sh --apply` 拉取更新。
 - **2026-07-02** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🔁 **把 Karpathy 的 LOOPS.md 思路吸收到 ARIS**([#333](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/333)–[#337](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/337))。Reviewer 现在会先找哪里可能有问题,而不是礼貌地打个分。遇到奇怪的 review 结论时,ARIS 会先让你看保存下来的 reviewer 记录,而不是立刻再问一遍模型。做坏的构建可以按计划重来,不必一直补丁叠补丁;计划、日志和结果会保留。评分可以参考真实的好/坏例子,`/meta-optimize` 会问哪些东西该删,`/paper-writing` 会在动笔前先定清楚"写完"的标准。⚠️ 运行 `bash tools/smart_update.sh --apply` 拉取更新。
 - **2026-06-20** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 📚 **Research wiki 四层节点全部用确定性写入器 —— 修复"重新生成的 idea 没被记录"**([#305](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/305)、[#306](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/306)、[#307](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/307)、[#308](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/308))。一位用户踩到真 bug:首次 `/idea-creator` 记下的 idea,重新生成时不见了 —— 因为 wiki 页面是 **freehand**(LLM 手写)写的,这种 prose 步骤在"再生成一版"时容易被跳过。现在每层都有专属 `research_wiki.py` 写入器,与 `ingest_paper` 并列:**`add_claim`**(claim 出生于 [`/proof-checker`](skills/proof-checker/SKILL.md))、**`upsert_idea`**([`/idea-creator`](skills/idea-creator/SKILL.md))、**`add_experiment`**([`/result-to-claim`](skills/result-to-claim/SKILL.md)),每个都有 drift-check 守护、防止退化成死代码。claim 的 `status` 现在是严格的**证明轴**(`verified`/`refuted`/`unproven`/…),实验支持改由 `supports`/`invalidates` **边**承载(修掉一个共享 validator 会拒绝的潜伏矛盾);**Codex-CLI skill 镜像也已同步**。无 `research-wiki/` 时**零行为变化**。
@@ -365,6 +366,7 @@ ARIS 读论文 → 找弱点 → 克隆代码 → 针对*那些*弱点用*那套
 git clone https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep.git
 bash Auto-claude-code-research-in-sleep/tools/install_aris.sh ~/your-project   # 把 ARIS skill symlink 进 <project>/.claude/skills/
 # （想全局安装？cp -r Auto-claude-code-research-in-sleep/skills/* ~/.claude/skills/）
+# （不需要全部 80 个？--list-groups / --groups X,Y / --skills X —— 见下方"选择性安装"）
 
 # 可选：Codex mirror 项目级受管安装
 bash Auto-claude-code-research-in-sleep/tools/install_aris_codex.sh ~/your-codex-project
@@ -456,7 +458,7 @@ cd Auto-claude-code-research-in-sleep && ls skills/ | xargs -I{} rm -rf ~/.claud
 </details>
 
 <details>
-<summary><b>展开全部 15 个内联参数和 8 个 override 示例</b> —— AUTO_PROCEED / sources / arxiv download / DBLP_BIBTEX / code review / wandb / illustration / venue / base repo / compact / ref paper / effort / reviewer / difficulty（完整 per-skill 默认值见 <a href="#customization">§ 自定义</a>）</summary>
+<summary><b>展开全部 15 个内联参数和 10 个 override 示例</b> —— AUTO_PROCEED / sources / arxiv download / DBLP_BIBTEX / code review / wandb / illustration / venue / base repo / compact / ref paper / effort / reviewer / difficulty（完整 per-skill 默认值见 <a href="#customization">§ 自定义</a>）</summary>
 
 所有流水线行为均可通过内联参数配置——在命令后追加 `— key: value`：
 
@@ -464,7 +466,7 @@ cd Auto-claude-code-research-in-sleep && ls skills/ | xargs -I{} rm -rf ~/.claud
 |------|------|------|
 | `AUTO_PROCEED` | `true` | 在 idea 选择关卡自动继续。设为 `false` 可在花 GPU 前手动挑选 idea |
 | `human checkpoint` | `false` | 每轮 review 后暂停，让你查看分数、给出修改意见、跳过特定修复或提前终止 |
-| `sources` | `all` | 搜索哪些文献源：`zotero`、`obsidian`、`local`、`web`、`semantic-scholar`、`deepxiv`、`exa`、`all`。`semantic-scholar`、`deepxiv` 和 `exa` 都需显式指定 |
+| `sources` | `all` | 搜索哪些文献源：`zotero`、`obsidian`、`local`、`web`、`semantic-scholar`、`deepxiv`、`exa`、`gemini`、`openalex`、`all`。`semantic-scholar`、`deepxiv`、`exa`、`gemini` 和 `openalex` 都需显式指定 |
 | `arxiv download` | `false` | 文献调研时下载最相关的 arXiv PDF。为 `false` 时仅获取元数据（标题、摘要、作者） |
 | `DBLP_BIBTEX` | `true` | 从 [DBLP](https://dblp.org)/[CrossRef](https://www.crossref.org) 获取真实 BibTeX，替代 LLM 生成。杜绝幻觉引用。零安装 |
 | `code review` | `true` | GPT-5.6-Sol xhigh 部署前审查实验代码。设 `false` 跳过 |
@@ -484,10 +486,34 @@ cd Auto-claude-code-research-in-sleep && ls skills/ | xargs -I{} rm -rf ~/.claud
 /research-pipeline "你的课题" — sources: zotero, web                         # 只搜 Zotero + 网络（跳过本地 PDF）
 /research-pipeline "你的课题" — sources: all, deepxiv                        # 默认源 + DeepXiv 渐进式检索
 /research-pipeline "你的课题" — sources: all, exa                            # 默认源 + Exa AI 智能网页搜索
+/research-pipeline "你的课题" — sources: all, gemini                         # 默认源 + Gemini 智能发现
+/research-pipeline "你的课题" — sources: all, openalex                       # 默认源 + OpenAlex 引用图
 /research-pipeline "你的课题" — arxiv download: true                         # 文献调研时下载最相关的 arXiv PDF
 /research-pipeline "你的课题" — difficulty: nightmare                        # 投顶会前极限压测
 /research-pipeline "你的课题" — AUTO_PROCEED: false, human checkpoint: true  # 组合使用
 ```
+
+</details>
+
+<details>
+<summary><b>Sandbox 行为与 strict mode</b> —— 控制 tool call 是否可以改变配置中的 sandbox 策略</summary>
+
+运行时的 `sandbox` 配置提供一个基线，但 tool request 也可能携带 sandbox 相关 override。在旧版兼容模式下，最终生效的 request 可能与 `settings.json` 中写入的值不同。
+
+如果希望配置中的策略成为硬约束，可以开启 `strictMode`：
+
+```json
+{
+  "sandbox": {
+    "enabled": true,
+    "strictMode": true
+  }
+}
+```
+
+当 `strictMode: true` 时，运行时会忽略 LLM 传入的以下 override：`dangerouslyDisableSandbox`、`namespaceRestrictions`、`isolateNetwork`、`filesystemMode` 和 `allowedMounts`。即使 tool call 请求了不同值，配置中的 sandbox 策略仍然生效。该选项默认关闭，以保持已有配置的兼容行为。
+
+可以运行 `aris doctor` 查看当前报告的 sandbox 状态。`strictMode` 只控制 tool request 是否能够覆盖运行时配置；它不替代宿主机的权限、文件系统保护或网络策略。
 
 </details>
 
@@ -1237,6 +1263,13 @@ cd ~/aris_repo && git pull
 
 # 3a. 上游新增 / 删除 skill 时，重跑安装器（一次的事）：
 bash ~/aris_repo/tools/install_aris.sh ~/your-paper-project
+
+# 只装需要的 skill（#366 选择性安装；不带参数在 TTY 上进全屏勾选菜单）：
+bash ~/aris_repo/tools/install_aris.sh --list-groups                  # 看 10 个分组
+bash ~/aris_repo/tools/install_aris.sh --groups paper-core,lit-search # 按组装
+bash ~/aris_repo/tools/install_aris.sh --skills paper-writing         # 指定 skill，pipeline 依赖自动带上
+bash ~/aris_repo/tools/install_aris.sh --exclude patent-pipeline      # 反选（记入 declined，更新时不再问）
+# 更新时上游新增的 skill 会逐个二次确认；--add-new 全收 / --skip-new 全跳过
 
 # 其他常用：
 bash ~/aris_repo/tools/install_aris.sh --dry-run        # 看计划，不写盘
