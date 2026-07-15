@@ -62,7 +62,7 @@ if [ -n "$TRACE_HELPER" ]; then
     --backend "<codex | copilot | manual | oracle-pro | agy>" \
     --tool "<mcp__codex__codex | copilot --agent | mcp__manual_review__review | ...>" \
     --executor "<claude-code | copilot | codex>" \
-    --executor-model "<from --executor-model; unavailable if not set>" \
+    --executor-model "<from --executor-model; omit this flag if not set>" \
     --executor-family "<legacy consistency hint; helper re-derives from executor-model>" \
     --reviewer-profile "<profile name for copilot backend; empty for others>" \
     --reviewer-family "<legacy consistency hint; helper re-derives from reviewer model>" \
@@ -73,7 +73,7 @@ if [ -n "$TRACE_HELPER" ]; then
     --prompt "<full prompt as sent>" \
     --response "<full response content>"
 else
-  # Required fallback: the resolver exhausted all three layers and
+  # Required fallback: the resolver exhausted all four layers and
   # save_trace.sh is unreachable, but trace artifacts are still
   # required (unless `--- trace: off` was explicitly set on this
   # SKILL invocation). Write the four files below directly per the
@@ -91,13 +91,16 @@ fi
 ```
 
 The helper, when present, handles directory creation, run numbering, file
-writing, and provenance derivation. It derives families from model strings
+writing, and provenance classification. It derives families from model strings
 (`reported_reviewer_model`, otherwise `requested_reviewer_model`, otherwise
-`model`) and ignores contradictory caller family/independence claims. The fallback branch above documents what to do
+`model`) and ignores contradictory caller family/independence claims. It also
+records that `--executor-model` is `caller-declared`; a different family pair is
+`family_relation: "different"` but remains `independence_verified: "unverified"`.
+The fallback branch above documents what to do
 when the helper is unreachable — the trace is forensic evidence, so
 "helper missing" never means "skip the trace." A direct fallback writer MUST
-apply the same model-string derivation and mark either unknown family as
-`independence_verified: "unverified"`; it may not copy caller family labels.
+apply the same model-string derivation and evidence-source rules; it may not
+copy caller family labels or promote caller-declared identity to verification.
 
 ## File Schemas
 
@@ -109,17 +112,25 @@ apply the same model-string derivation and mark either unknown family as
   "started_at": "2026-04-15T14:30:00+08:00",
   "executor": "claude-code",
   "executor_model": "claude-sonnet-4-5",
+  "executor_model_source": "caller-declared",
   "executor_family": "anthropic",
+  "reviewer_model_source": "requested",
   "reviewer_family": "openai",
   "reviewer_backend": "codex",
+  "family_relation": "different",
+  "independence_verified": "unverified",
   "project_dir": "/path/to/project"
 }
 ```
 
 - `executor`: the name of the running executor (from `--executor` parameter; defaults to `"claude-code"`). Dynamic — set by the caller, not hardcoded.
-- `executor_model`: the model running this ARIS invocation (from `--executor-model` parameter when available; otherwise `"unavailable"`).
+- `executor_model`: the declared model running this ARIS invocation (from `--executor-model` when available; otherwise `null`).
+- `executor_model_source`: `"caller-declared"` when `--executor-model` is present; otherwise `"unavailable"`.
 - `executor_family`: derived from `executor_model` (`openai` / `anthropic` / `google` / `unknown`).
-- `reviewer_family`: the reviewer model's family, determined at spawn time from the reviewer backend's active model.
+- `reviewer_model_source`: `"backend-reported"`, `"requested"`, or `"unavailable"`.
+- `reviewer_family`: derived from the backend-reported model when available, otherwise the requested model.
+- `family_relation`: `different`, `same`, or `unknown`, derived from model strings.
+- `independence_verified`: `false` for known same-family identities; otherwise `"unverified"` unless a future transport supplies independently attested identities for both sides.
 - `reviewer_backend`: `codex` / `copilot` / `manual` / `oracle-pro` / `agy` — the backend used for review calls.
 
 ### `NNN-<purpose>.request.json`
@@ -153,9 +164,12 @@ For copilot backend (`--reviewer: copilot`):
   "requested_reviewer_model": "gpt-5.4",
   "reported_reviewer_model": null,
   "executor_model": "claude-sonnet-4-5",
+  "executor_model_source": "caller-declared",
   "executor_family": "anthropic",
+  "reviewer_model_source": "requested",
   "reviewer_family": "openai",
-  "independence_verified": true,
+  "family_relation": "different",
+  "independence_verified": "unverified",
   "files_referenced": ["paper/sections/3_method.tex", "results/table1.csv"],
   "prompt": "<full prompt text>"
 }
@@ -167,11 +181,14 @@ Fields:
 - `effort_unpinned`: for Copilot, `false` only when the actual subprocess was explicitly invoked with `--effort xhigh`; older/unpinned Copilot calls remain `true` and cannot meet the review floor.
 - `reviewer_profile`: for copilot, the custom agent profile name (e.g., `aris-reviewer-openai`); `null` for other backends.
 - `requested_reviewer_model`: the model parsed from profile frontmatter and repeated through subprocess `--model`; `null` when unavailable.
-- `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this information.
-- `executor_model`: from `--executor-model` parameter; `"unavailable"` if not provided.
+- `reported_reviewer_model`: the model the tool reports actually using (for example, captured Copilot `gen_ai.response.model` telemetry); `null` when unavailable.
+- `executor_model`: from `--executor-model`; `null` if not provided.
+- `executor_model_source`: `caller-declared` when present, otherwise `unavailable`.
 - `executor_family`: derived from `executor_model`.
+- `reviewer_model_source`: `backend-reported`, `requested`, or `unavailable`.
 - `reviewer_family`: derived by the helper from the reported/requested/actual reviewer model, never trusted from the caller.
-- `independence_verified`: derived from actual executor and reviewer model families — `true` when `executor_family != reviewer_family` and both are known; `false` otherwise; `"unverified"` when families are not both available to derive.
+- `family_relation`: string-derived relation (`different` / `same` / `unknown`).
+- `independence_verified`: `false` for a known same-family pair; `"unverified"` for a different pair when the executor identity is caller-declared. Different model strings alone never yield `true`.
 
 ### `NNN-<purpose>.response.md`
 The reviewer's full response, verbatim. No truncation, no summarization.
@@ -185,8 +202,12 @@ The reviewer's full response, verbatim. No truncation, no summarization.
   "thread_id": "019d8fe0-b25d-...",
   "model": "gpt-5.6-sol",
   "model_family": "openai",
-  "executor_family": "anthropic",
-  "independence_verified": true,
+  "executor_model": null,
+  "executor_model_source": "unavailable",
+  "executor_family": "unknown",
+  "reviewer_model_source": "requested",
+  "family_relation": "unknown",
+  "independence_verified": "unverified",
   "reviewer_profile": null,
   "duration_ms": 142000,
   "status": "ok"
@@ -204,10 +225,14 @@ For copilot backend:
   "model_family": "openai",
   "effort": "xhigh",
   "effort_unpinned": false,
+  "executor_model": "claude-sonnet-4-5",
+  "executor_model_source": "caller-declared",
   "executor_family": "anthropic",
   "requested_reviewer_model": "gpt-5.4",
   "reported_reviewer_model": null,
-  "independence_verified": true,
+  "reviewer_model_source": "requested",
+  "family_relation": "different",
+  "independence_verified": "unverified",
   "reviewer_profile": "aris-reviewer-openai",
   "duration_ms": 142000,
   "status": "ok"
@@ -217,12 +242,14 @@ For copilot backend:
 Fields new per this fix:
 - `model_family`: `openai` / `anthropic` / `google` / `unknown` — derived from the model that actually ran.
 - `effort_unpinned`: whether a Copilot call lacked the required explicit `xhigh` pin; qualifying current Copilot calls record `false`.
-- `executor_family`: from `--executor-model` derivation (copilot) or executor introspection (other backends); `"unavailable"` if not known.
+- `executor_model` / `executor_model_source`: declared model and its evidence source; current Copilot routing records `caller-declared`.
+- `executor_family`: derived from `executor_model`; `unknown` if not known.
 - `requested_reviewer_model`: the profile model also passed through subprocess `--model`; `null` when not available.
-- `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this.
-- `independence_verified`: derived from actual executor and reviewer families — `true` only when they differ and both are known; `false` if same-family; `"unverified"` if families cannot be resolved.
+- `reported_reviewer_model` / `reviewer_model_source`: backend output when available, otherwise the requested model and source.
+- `family_relation`: the model-string relation, separate from evidence assurance.
+- `independence_verified`: never `true` solely because caller-declared and requested model strings differ; use `"unverified"` in that case.
 - `reviewer_profile`: for copilot backend only, the custom agent profile name; `null` for other backends.
-- `memory_hash`: SHA-256 of `REVIEWER_MEMORY.md` at trace time; `null` when no memory file exists.
+- `memory_hash`: SHA-256 of `review-stage/REVIEWER_MEMORY.md` at trace time; `null` when no memory file exists.
 
 ## Configuration
 
@@ -236,7 +263,7 @@ Tracing respects three modes, set via inline parameter `--- trace: off | meta | 
 After writing a trace, append a compact summary event to `.aris/meta/events.jsonl`:
 
 ```json
-{"event":"review_trace","skill":"auto-review-loop","purpose":"round-1-review","thread_id":"...","trace_path":".aris/traces/auto-review-loop/2026-04-15_run01/","backend":"copilot","tool":"copilot --agent","executor_family":"anthropic","reviewer_family":"openai","independence_verified":true,"status":"ok"}
+{"event":"review_trace","skill":"auto-review-loop","purpose":"round-1-review","thread_id":null,"trace_path":".aris/traces/auto-review-loop/2026-04-15_run01/","backend":"copilot","tool":"copilot --agent","executor_model":"claude-sonnet-4-5","executor_model_source":"caller-declared","executor_family":"anthropic","reviewer_model_source":"requested","reviewer_family":"openai","family_relation":"different","independence_verified":"unverified","status":"ok"}
 ```
 
 This allows `/meta-optimize` to discover traces without reading the full trace files.

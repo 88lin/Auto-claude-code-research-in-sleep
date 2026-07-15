@@ -39,6 +39,7 @@ SKILL="" PURPOSE="" MODEL="" THREAD_ID="" PROMPT="" RESPONSE=""
 PROMPT_FILE="" RESPONSE_FILE="" TRACE_MODE="${ARIS_TRACE_MODE:-full}" EFFORT="" FALLBACK_REASON="" STATUS="ok"
 BACKEND="" TOOL="" EXECUTOR="" EXECUTOR_MODEL="" EXECUTOR_FAMILY="" REVIEWER_PROFILE="" REVIEWER_FAMILY="" INDEPENDENCE_VERIFIED=""
 REQUESTED_REVIEWER_MODEL="" REPORTED_REVIEWER_MODEL="" MEMORY_HASH=""
+EXECUTOR_MODEL_SOURCE="unavailable" REVIEWER_MODEL_SOURCE="unavailable" FAMILY_RELATION="unknown"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -106,9 +107,19 @@ CALLER_EXECUTOR_FAMILY="$EXECUTOR_FAMILY"
 CALLER_REVIEWER_FAMILY="$REVIEWER_FAMILY"
 CALLER_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED"
 
+if [[ -n "$EXECUTOR_MODEL" ]]; then
+  # Copilot CLI exposes no stable parent-session attestation to this child
+  # helper.  The value is useful for routing, but remains caller-declared.
+  EXECUTOR_MODEL_SOURCE="caller-declared"
+fi
+
 EFFECTIVE_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL"
 case "$(lowercase "$EFFECTIVE_REVIEWER_MODEL")" in
-  ""|unknown|unavailable|none|null) EFFECTIVE_REVIEWER_MODEL="${REQUESTED_REVIEWER_MODEL:-$MODEL}" ;;
+  ""|unknown|unavailable|none|null)
+    EFFECTIVE_REVIEWER_MODEL="${REQUESTED_REVIEWER_MODEL:-$MODEL}"
+    [[ -n "$EFFECTIVE_REVIEWER_MODEL" ]] && REVIEWER_MODEL_SOURCE="requested"
+    ;;
+  *) REVIEWER_MODEL_SOURCE="backend-reported" ;;
 esac
 
 EXECUTOR_FAMILY="$(derive_model_family "$EXECUTOR_MODEL")"
@@ -122,10 +133,16 @@ if [[ -n "$CALLER_REVIEWER_FAMILY" && "$(lowercase "$CALLER_REVIEWER_FAMILY")" !
 fi
 
 if [[ "$EXECUTOR_FAMILY" == "unknown" || "$REVIEWER_FAMILY" == "unknown" ]]; then
+  FAMILY_RELATION="unknown"
   INDEPENDENCE_VERIFIED="unverified"
 elif [[ "$EXECUTOR_FAMILY" != "$REVIEWER_FAMILY" ]]; then
-  INDEPENDENCE_VERIFIED="true"
+  FAMILY_RELATION="different"
+  # A different pair of model strings is a routing fact, not independent
+  # proof of the parent executor's actual model.  Never promote the caller's
+  # --executor-model declaration to verified provenance.
+  INDEPENDENCE_VERIFIED="unverified"
 else
+  FAMILY_RELATION="same"
   INDEPENDENCE_VERIFIED="false"
 fi
 if [[ -n "$CALLER_INDEPENDENCE_VERIFIED" && "$(lowercase "$CALLER_INDEPENDENCE_VERIFIED")" != "$INDEPENDENCE_VERIFIED" ]]; then
@@ -166,16 +183,24 @@ if [[ ! -f "${RUN_DIR}/run.meta.json" ]]; then
   ST_SKILL="$SKILL" ST_RUN_ID="$RUN_ID" ST_STARTED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   ST_PROJ="$(pwd)" ST_OUT="${RUN_DIR}/run.meta.json" \
   ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
-  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_BACKEND="$BACKEND" python3 -c '
+  ST_EXECUTOR_MODEL_SOURCE="$EXECUTOR_MODEL_SOURCE" ST_REVIEWER_MODEL_SOURCE="$REVIEWER_MODEL_SOURCE" \
+  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_BACKEND="$BACKEND" \
+  ST_FAMILY_RELATION="$FAMILY_RELATION" ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" python3 -c '
 import json, os
 e = os.environ
+raw_iv = (e.get("ST_INDEPENDENCE_VERIFIED") or "unverified").lower()
+iv = True if raw_iv == "true" else False if raw_iv == "false" else "unverified"
 json.dump({"skill": e["ST_SKILL"], "run_id": e["ST_RUN_ID"],
            "started_at": e["ST_STARTED"],
            "executor": e.get("ST_EXECUTOR") or "claude-code",
            "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+           "executor_model_source": e.get("ST_EXECUTOR_MODEL_SOURCE") or "unavailable",
            "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+           "reviewer_model_source": e.get("ST_REVIEWER_MODEL_SOURCE") or "unavailable",
            "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
            "reviewer_backend": e.get("ST_REVIEWER_BACKEND") or None,
+           "family_relation": e.get("ST_FAMILY_RELATION") or "unknown",
+           "independence_verified": iv,
            "project_dir": e["ST_PROJ"]},
           open(e["ST_OUT"], "w"), indent=2)
 '
@@ -195,25 +220,18 @@ if [[ "$TRACE_MODE" == "full" ]]; then
   ST_MODEL="$MODEL" ST_EFFORT="$EFFORT" ST_FALLBACK="$FALLBACK_REASON" ST_STATUS="$STATUS" \
   ST_TOOL="$TOOL" ST_BACKEND="$BACKEND" \
   ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_EXECUTOR_MODEL_SOURCE="$EXECUTOR_MODEL_SOURCE" ST_REVIEWER_MODEL_SOURCE="$REVIEWER_MODEL_SOURCE" \
   ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
   ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
-  ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+  ST_FAMILY_RELATION="$FAMILY_RELATION" ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
   ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os, sys
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
                    (e.get("ST_EFFORT") or "").lower() != "xhigh")
-# Validate both families against the known set before comparing.
-# Unknown or unset families produce "unverified" — the schema’s
-# "both known" rule means we must not guess independence.
-KNOWN_FAMILIES = {"openai", "anthropic", "google"}
-ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
-rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
-if ef in KNOWN_FAMILIES and rf in KNOWN_FAMILIES:
-    iv = (ef != rf)
-else:
-    iv = "unverified"
+raw_iv = (e.get("ST_INDEPENDENCE_VERIFIED") or "unverified").lower()
+iv = True if raw_iv == "true" else False if raw_iv == "false" else "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
@@ -227,11 +245,14 @@ data = {
     "status": e["ST_STATUS"],
     "executor": e.get("ST_EXECUTOR") or "claude-code",
     "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_model_source": e.get("ST_EXECUTOR_MODEL_SOURCE") or "unavailable",
     "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_model_source": e.get("ST_REVIEWER_MODEL_SOURCE") or "unavailable",
     "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
     "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
     "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
     "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "family_relation": e.get("ST_FAMILY_RELATION") or "unknown",
     "independence_verified": iv,
     "memory_hash": e.get("ST_MEMORY_HASH") or None,
     "prompt": sys.stdin.read(),
@@ -248,25 +269,18 @@ else
   ST_PLEN="${#PROMPT}" ST_RLEN="${#RESPONSE}" \
   ST_TOOL="$TOOL" ST_BACKEND="$BACKEND" \
   ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_EXECUTOR_MODEL_SOURCE="$EXECUTOR_MODEL_SOURCE" ST_REVIEWER_MODEL_SOURCE="$REVIEWER_MODEL_SOURCE" \
   ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
   ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
-  ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+  ST_FAMILY_RELATION="$FAMILY_RELATION" ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
   ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
                    (e.get("ST_EFFORT") or "").lower() != "xhigh")
-# Validate both families against the known set before comparing.
-# Unknown or unset families produce "unverified" — the schema’s
-# "both known" rule means we must not guess independence.
-KNOWN_FAMILIES = {"openai", "anthropic", "google"}
-ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
-rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
-if ef in KNOWN_FAMILIES and rf in KNOWN_FAMILIES:
-    iv = (ef != rf)
-else:
-    iv = "unverified"
+raw_iv = (e.get("ST_INDEPENDENCE_VERIFIED") or "unverified").lower()
+iv = True if raw_iv == "true" else False if raw_iv == "false" else "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
@@ -282,11 +296,14 @@ data = {
     "response_length": int(e["ST_RLEN"]),
     "executor": e.get("ST_EXECUTOR") or "claude-code",
     "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_model_source": e.get("ST_EXECUTOR_MODEL_SOURCE") or "unavailable",
     "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_model_source": e.get("ST_REVIEWER_MODEL_SOURCE") or "unavailable",
     "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
     "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
     "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
     "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "family_relation": e.get("ST_FAMILY_RELATION") or "unknown",
     "independence_verified": iv,
     "memory_hash": e.get("ST_MEMORY_HASH") or None,
 }
@@ -298,26 +315,19 @@ fi
 ST_CALL_NUM="$CALL_NUM" ST_PURPOSE="$PURPOSE" ST_TIMESTAMP="$TIMESTAMP" \
 ST_THREAD="$THREAD_ID" ST_MODEL="$MODEL" ST_EFFORT="$EFFORT" \
 ST_FALLBACK="$FALLBACK_REASON" ST_STATUS="$STATUS" \
-ST_BACKEND="$BACKEND" ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+ST_BACKEND="$BACKEND" ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+ST_EXECUTOR_MODEL_SOURCE="$EXECUTOR_MODEL_SOURCE" ST_REVIEWER_MODEL_SOURCE="$REVIEWER_MODEL_SOURCE" \
 ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_REVIEWER_PROFILE="$REVIEWER_PROFILE" \
 ST_REQUESTED_REVIEWER_MODEL="$REQUESTED_REVIEWER_MODEL" ST_REPORTED_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL" \
-ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
+ST_FAMILY_RELATION="$FAMILY_RELATION" ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" \
 ST_MEMORY_HASH="$MEMORY_HASH" \
 ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.meta.json" python3 -c '
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
                    (e.get("ST_EFFORT") or "").lower() != "xhigh")
-# Validate both families against the known set before comparing.
-# Unknown or unset families produce "unverified" — the schema’s
-# "both known" rule means we must not guess independence.
-KNOWN_FAMILIES = {"openai", "anthropic", "google"}
-ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
-rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
-if ef in KNOWN_FAMILIES and rf in KNOWN_FAMILIES:
-    iv = (ef != rf)
-else:
-    iv = "unverified"
+raw_iv = (e.get("ST_INDEPENDENCE_VERIFIED") or "unverified").lower()
+iv = True if raw_iv == "true" else False if raw_iv == "false" else "unverified"
 data = {
     "call_number": int(e["ST_CALL_NUM"]),
     "purpose": e["ST_PURPOSE"],
@@ -330,9 +340,13 @@ data = {
     "fallback_reason": e["ST_FALLBACK"],
     "status": e["ST_STATUS"],
     "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_model_source": e.get("ST_EXECUTOR_MODEL_SOURCE") or "unavailable",
     "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_model_source": e.get("ST_REVIEWER_MODEL_SOURCE") or "unavailable",
     "requested_reviewer_model": e.get("ST_REQUESTED_REVIEWER_MODEL") or None,
     "reported_reviewer_model": e.get("ST_REPORTED_REVIEWER_MODEL") or None,
+    "family_relation": e.get("ST_FAMILY_RELATION") or "unknown",
     "independence_verified": iv,
     "reviewer_profile": e.get("ST_REVIEWER_PROFILE") or None,
     "memory_hash": e.get("ST_MEMORY_HASH") or None,
@@ -347,23 +361,17 @@ if [[ -d ".aris/meta" ]]; then
   ST_TRACE="${RUN_DIR}/" ST_STATUS="$STATUS" ST_EVENTS="$EVENTS_FILE" \
   ST_BACKEND="$BACKEND" ST_TOOL="$TOOL" \
   ST_EFFORT="$EFFORT" \
-  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" \
+  ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_MODEL="$EXECUTOR_MODEL" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" \
+  ST_EXECUTOR_MODEL_SOURCE="$EXECUTOR_MODEL_SOURCE" ST_REVIEWER_MODEL_SOURCE="$REVIEWER_MODEL_SOURCE" \
+  ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" ST_FAMILY_RELATION="$FAMILY_RELATION" \
   ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" python3 -c '
 import json, os
 e = os.environ
 effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
                    (e.get("ST_EFFORT") or "").lower() != "xhigh")
-# Validate both families against the known set before comparing.
-# Unknown or unset families produce "unverified" — the schema’s
-# "both known" rule means we must not guess independence.
-KNOWN_FAMILIES = {"openai", "anthropic", "google"}
-ef = (e.get("ST_EXECUTOR_FAMILY") or "").lower()
-rf = (e.get("ST_REVIEWER_FAMILY") or "").lower()
-if ef in KNOWN_FAMILIES and rf in KNOWN_FAMILIES:
-    iv = (ef != rf)
-else:
-    iv = "unverified"
+raw_iv = (e.get("ST_INDEPENDENCE_VERIFIED") or "unverified").lower()
+iv = True if raw_iv == "true" else False if raw_iv == "false" else "unverified"
 evt = {
     "event": "review_trace",
     "skill": e["ST_SKILL"],
@@ -373,8 +381,12 @@ evt = {
     "backend": e.get("ST_BACKEND") or None,
     "tool": e.get("ST_TOOL") or None,
     "executor": e.get("ST_EXECUTOR") or "claude-code",
+    "executor_model": e.get("ST_EXECUTOR_MODEL") or None,
+    "executor_model_source": e.get("ST_EXECUTOR_MODEL_SOURCE") or "unavailable",
     "executor_family": e.get("ST_EXECUTOR_FAMILY") or None,
+    "reviewer_model_source": e.get("ST_REVIEWER_MODEL_SOURCE") or "unavailable",
     "reviewer_family": e.get("ST_REVIEWER_FAMILY") or None,
+    "family_relation": e.get("ST_FAMILY_RELATION") or "unknown",
     "effort_unpinned": effort_unpinned,
     "independence_verified": iv,
     "memory_hash": e.get("ST_MEMORY_HASH") or None,

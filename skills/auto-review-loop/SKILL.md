@@ -1,6 +1,6 @@
 ---
 name: auto-review-loop
-description: Autonomous multi-round research review loop. Repeatedly reviews via external reviewer backend (Codex or manual), implements fixes, and re-reviews until positive assessment or max rounds reached. Use when user says "auto review loop", "review until it passes", or wants autonomous iterative improvement.
+description: Autonomous multi-round research review loop. Repeatedly reviews via Codex/manual or explicit Copilot drive mode, implements fixes, and re-reviews until a policy-approved positive assessment or max rounds is reached. Use when user says "auto review loop", "review until it passes", or wants autonomous iterative improvement.
 argument-hint: "[topic-or-scope]"
 allowed-tools: Bash(*), Read, Grep, Glob, Write, Edit, Skill, Task, mcp__codex__codex, mcp__codex__codex-reply, mcp__manual_review__review, mcp__manual_review__review_reply
 ---
@@ -26,7 +26,7 @@ Autonomously iterate: review → implement fixes → re-review, until the extern
 - POSITIVE_THRESHOLD: score >= 6/10 **AND** verdict ∈ {"ready", "almost"} — **both** must hold. This matches the operative Phase-E STOP CONDITION exactly; the verdict vocabulary is {"ready", "almost", "not ready"} (a high score with a "not ready" verdict does NOT stop the loop). Earlier wording here used `or` and a stale verdict set ("accept"/"sufficient"/"ready for submission") — that was an internal inconsistency; the `AND` form is authoritative.
 - REVIEW_DOC: `review-stage/AUTO_REVIEW.md` (cumulative log) *(fall back to `./AUTO_REVIEW.md` for legacy projects)*
 - REVIEWER_MODEL = `gpt-5.6-sol` — Default model for the Codex backend. Must be an OpenAI model (e.g., `gpt-5.6-sol`, `o3`, `gpt-4o`). Manual backend uses whatever model the user chooses.
-- **REVIEWER_BACKEND** — Default is `codex` (Codex MCP, xhigh — backward compatible, no change for existing users). Override with `— reviewer: copilot` (explicit Copilot CLI — uses `copilot --agent` subprocess + custom agent profiles, cross-family enforced via opposite-family profile selection, requires `--executor-model`), `— reviewer: oracle-pro` for Oracle MCP, or `— reviewer: manual` for Manual Review MCP. If manual-review MCP is unavailable, stop and print the install command; do not fall back to Codex. See `shared-references/reviewer-routing.md`. **Note:** `COPILOT_CLI` env var does not exist persistently (open proposal, github/copilot-cli#2107). Copilot reviewer is explicit-only until a reliable auto-detection signal ships.
+- **REVIEWER_BACKEND** — Default is `codex` (Codex MCP, xhigh — backward compatible, no change for existing users). Override with `— reviewer: copilot` (explicit Copilot CLI drive mode — uses `copilot --agent` subprocess + custom agent profiles, routes to an opposite-family profile from the caller-declared `--executor-model`, and requires a later Codex/manual finalizer before acceptance), `— reviewer: oracle-pro` for Oracle MCP, or `— reviewer: manual` for Manual Review MCP. If manual-review MCP is unavailable, stop and print the install command; do not fall back to Codex. See `shared-references/reviewer-routing.md`. **Note:** `COPILOT_CLI` env var does not exist persistently (open proposal, github/copilot-cli#2107). Copilot reviewer is explicit-only until a reliable auto-detection signal ships.
 - **OUTPUT_DIR = `review-stage/`** — All review-stage outputs go here. Create the directory if it doesn't exist.
 - **HUMAN_CHECKPOINT = false** — When `true`, pause after each round's review (Phase B) and present the score + weaknesses to the user. Wait for user input before proceeding to Phase C. The user can: approve the suggested fixes, provide custom modification instructions, skip specific fixes, or stop the loop early. When `false` (default), the loop runs fully autonomously.
 - **COMPACT = false** — When `true`, (1) read `EXPERIMENT_LOG.md` and `findings.md` instead of parsing full logs on session recovery, (2) append key findings to `findings.md` after each round.
@@ -59,15 +59,20 @@ When calling the reviewer, branch on REVIEWER_BACKEND:
   from that model string, and verify it differs from `executor_family`. Pass
   the same value through subprocess `--model`; never trust a caller-supplied
   family label or profile-only pinning under an Auto session.
+  **Identity assurance:** `--executor-model` is caller-declared routing input,
+  not runtime attestation. Record `executor_model_source: caller-declared`, the
+  derived `family_relation`, and `independence_verified: unverified`. A pair of
+  different model strings must never be promoted to independently verified.
   **Capability gate:** `copilot --help` must advertise `--model`, `--effort`,
   and `--allow-tool`; otherwise emit `REVIEW_UNAVAILABLE`.
   **Use the `copilot --agent` subprocess** (documented Copilot CLI form)
   with the selected profile, `--model "$REVIEWER_MODEL"`, `--effort xhigh`,
   and `--allow-tool=read` for each review call.
   **Multi-round:** each round is a fresh `copilot --agent` call with the same
-  profile; reviewer memory is carried via `REVIEWER_MEMORY.md` artifact.
-  If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` (no MCP-dependent
-  fallback — the user chose copilot because they may have no MCP access).
+  profile; reviewer memory is carried via `review-stage/REVIEWER_MEMORY.md` artifact.
+  If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` for that drive round;
+  do not silently substitute another transport. A later positive Copilot
+  verdict still requires the separately documented Codex/manual finalizer.
   See `shared-references/reviewer-routing.md` for the full copilot contract.
 
 **If REVIEWER_BACKEND = `codex`:**
@@ -103,9 +108,14 @@ Long-running loops may hit the context window limit, triggering automatic compac
   "reviewer_profile": "aris-reviewer-openai",
   "reviewer_backend": "copilot",
   "executor_model": "claude-sonnet-4-5",
+  "executor_model_source": "caller-declared",
   "executor_family": "anthropic",
+  "requested_reviewer_model": "gpt-5.4",
+  "reviewer_model_source": "requested",
   "reviewer_family": "openai",
-  "independence_verified": true,
+  "family_relation": "different",
+  "independence_verified": "unverified",
+  "requires_external_acquittal": false,
   "status": "in_progress",
   "difficulty": "medium",
   "last_score": 5.0,
@@ -117,18 +127,18 @@ Long-running loops may hit the context window limit, triggering automatic compac
 
 - **`run_id`** — Globally unique per invocation. Generated on fresh start as `run_<YYYYMMDD>_<8-char-hex>` (e.g., `run_20260713_a1b2c3d4`). Preserved across round writes. On resume, read from state file unchanged. This binds all round state, reviewer-memory appends, and acquittal receipts to one run so a stale completed state from a previous invocation cannot leak into the current run's acquittal check.
 
-When REVIEWER_BACKEND = `copilot`, save `reviewer_profile`, `requested_reviewer_model`, `executor_model`, and the model-derived `executor_family`, `reviewer_family`, and `independence_verified`. Copilot does not return a persistent agent ID — each round is a fresh `copilot --agent` subprocess with the same profile/model. For `codex` backend, save `threadId` (Codex MCP thread ID). For `manual` backend, save `threadId` and the declared reviewer model identity. On resume, use the `reviewer_backend` field to determine the correct continuation mechanism (fresh `copilot --agent` subprocess for copilot, `codex-reply` for codex, `manual_review_reply` for manual).
+When REVIEWER_BACKEND = `copilot`, save `reviewer_profile`, `requested_reviewer_model`, `executor_model`, their model sources, the model-derived families, `family_relation`, and `independence_verified`. The current integration has no stable parent-session model attestation, so `executor_model_source` is `caller-declared` and a different family relation remains `independence_verified: "unverified"`. Copilot does not return a persistent agent ID — each round is a fresh `copilot --agent` subprocess with the same profile/model. For `codex` backend, save `threadId` (Codex MCP thread ID). For `manual` backend, save `threadId` and the reported reviewer model identity. On resume, use the `reviewer_backend` field to determine the correct continuation mechanism and preserve `requires_external_acquittal` unchanged.
 
 **Write this file at the end of every Phase E** (after documenting the round). Overwrite each time — only the latest round's state matters. The `run_id` field MUST persist unchanged across overwrites within the same run.
 
 **On completion** (positive assessment or max rounds), set `"status": "completed"` so future invocations don't accidentally resume a finished loop.
 
-### Append-Only Acquittal Receipt
+### Append-Only External-Finalizer Receipt
 
-In addition to the overwritable state file, maintain an **append-only** acquittal log at `review-stage/ACQUITTAL_LOG.jsonl`. Each line is a standalone JSON object recording an acquitting positive verdict:
+In addition to the overwritable state file, maintain an **append-only** finalizer log at `review-stage/ACQUITTAL_LOG.jsonl`. Each line records a positive Codex/manual finalizer verdict that completed a Copilot-driven run. The historical filename is retained for compatibility; the record is not proof of independently attested executor identity:
 
 ```jsonl
-{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"executor_model":"claude-sonnet-4-5","executor_family":"anthropic","reviewer_model":"gpt-5.6-sol","reviewer_family":"openai","independence_verified":true,"trace_id":"auto-review-loop/2026-07-13_run03","timestamp":"2026-07-13T14:22:00Z"}
+{"run_id":"run_20260713_a1b2c3d4","round":3,"backend":"codex","effort":"xhigh","verdict":"ready","score":7.5,"executor_model":"claude-sonnet-4-5","executor_model_source":"caller-declared","executor_family":"anthropic","reviewer_model":"gpt-5.6-sol","reviewer_model_source":"requested","reviewer_family":"openai","family_relation":"different","identity_assurance":"caller_declared","independence_verified":"unverified","trace_id":"auto-review-loop/2026-07-13_run03","timestamp":"2026-07-13T14:22:00Z"}
 ```
 
 **Rules (non-negotiable):**
@@ -136,14 +146,14 @@ In addition to the overwritable state file, maintain an **append-only** acquitta
 | Rule | Detail |
 |------|--------|
 | **Append-only** | Never delete, never truncate, never overwrite lines. Only `>>`. |
-| **Who writes** | Only `codex` or `manual` backends at `xhigh`+ effort. Copilot NEVER writes an acquittal line. |
-| **When to write** | At the end of Phase E, immediately after a positive verdict (score >= 6 AND verdict ∈ {"ready", "almost"}) from a qualifying backend. |
-| **`run_id` binding** | Every acquittal line carries the current `run_id`. The stop-evaluation gate for Copilot MUST verify `run_id` matches the current run before accepting an acquittal. |
-| **Trace linkage** | `trace_id` MUST reference a trace artifact in `.aris/traces/` (per Review Tracing protocol) so every acquittal is independently verifiable. |
-| **Identity linkage** | Copy executor/reviewer model identities from that trace. Re-derive both families from the model strings; both must be known, different, and match the trace's `independence_verified: true`. Caller-supplied family strings alone never qualify. |
+| **Who writes** | Only a `codex` or `manual` round at `xhigh` effort when `round_requires_external_acquittal` was `true`. Copilot NEVER writes a finalizer line. |
+| **When to write** | At the end of Phase E, after the policy-approved finalizer returns score >= 6 AND verdict ∈ {"ready", "almost"}. A normal default-Codex run does not need this sidecar. |
+| **`run_id` binding** | Every line carries the current `run_id` and round so the Copilot → finalizer transition is auditable. |
+| **Trace linkage** | `trace_id` MUST reference the real trace artifact in `.aris/traces/`; source and family fields in the receipt must exactly match that trace. |
+| **Identity honesty** | Re-derive `family_relation` from the model strings, but preserve their sources. With the current caller-declared executor identity, write `identity_assurance: "caller_declared"` and `independence_verified: "unverified"`; never promote different strings to independent attestation. |
 | **No overwrite** | `REVIEW_STATE.json` is overwritten each round (only latest state). `ACQUITTAL_LOG.jsonl` is NEVER overwritten — it is the permanent, cumulative record. |
 
-**Why this exists:** `REVIEW_STATE.json` is overwritten each round (only the latest state matters per the contract above). When a run completes with `status: "completed"` and a codex/manual positive verdict, a subsequent fresh-start invocation writes a new `REVIEW_STATE.json` — obliterating the prior run's acquittal data. The Copilot stop-evaluation gate (Phase B.5.1) must check for an acquittal from the **current run**, not a stale state file. The append-only `ACQUITTAL_LOG.jsonl`, with `run_id` matching, is the only reliable source of truth.
+**Why this exists:** `REVIEW_STATE.json` is overwritten each round. The append-only log preserves evidence that a Copilot drive round did not terminate the run by itself and that a policy-approved external backend supplied the final positive verdict.
 
 ## Output Protocols
 
@@ -165,7 +175,7 @@ In addition to the overwritable state file, maintain an **append-only** acquitta
      - **Generate a new `run_id`** for this invocation.
    - If it exists AND `status` is `"in_progress"` AND `timestamp` is within 24 hours: **resume**
      - Read the state file to recover `run_id`, `round`, `threadId` (or `reviewer_profile` for copilot backend), `reviewer_backend`, `last_score`, `pending_experiments`
-     - **Legacy backward compat**: if `reviewer_backend` is absent from the state file, default to `codex` (pre-copilot-era states did not record this field). If `run_id` is absent from the state file (pre-run_id era), generate a new `run_id` and log: "No run_id in legacy state file; assigned run_<...> for this resume."
+     - **Legacy backward compat**: if `reviewer_backend` is absent from the state file, default to `codex` (pre-copilot-era states did not record this field). If `requires_external_acquittal` is absent, default it to `false`; a legacy default-Codex run must not inherit the stricter Copilot-finalizer state. If `run_id` is absent from the state file (pre-run_id era), generate a new `run_id` and log: "No run_id in legacy state file; assigned run_<...> for this resume."
      - Read `review-stage/AUTO_REVIEW.md` to restore full context of prior rounds *(fall back to `./AUTO_REVIEW.md`)*
      - If `pending_experiments` is non-empty, check if they have completed (e.g., check screen sessions)
      - Resume from the next round (round = saved round + 1)
@@ -179,13 +189,13 @@ In addition to the overwritable state file, maintain an **append-only** acquitta
 
 ### Loop (repeat up to MAX_ROUNDS)
 
-**Step 0 — Initialize `round_backend`:** At the start of each round, before Phase A, snapshot the current `REVIEWER_BACKEND` value: `round_backend = <current REVIEWER_BACKEND>`. This variable labels which backend actually ran the CURRENT round. If escalation occurs later in Phase B.5.1 (copilot → codex/manual), `round_backend` retains the pre-escalation value (the backend that ran), while `REVIEWER_BACKEND` in state is updated for the NEXT round. Phase E references `round_backend` for documentation and the acquittal gate.
+**Step 0 — Snapshot current-round state:** At the start of each round, before Phase A, set `round_backend = <current REVIEWER_BACKEND>` and `round_requires_external_acquittal = <current requires_external_acquittal, default false>`. These variables label the backend and obligation that actually governed the CURRENT round. If escalation occurs later in Phase B.5.1 (copilot → codex/manual), the snapshots retain their pre-escalation values while the forward-looking state is updated for the NEXT round. Phase E uses only the snapshots when documenting or writing a finalizer receipt.
 
 #### Phase A: Review
 
 **Route by REVIEWER_BACKEND and REVIEWER_DIFFICULTY.**
 
-If REVIEWER_BACKEND = `copilot`, enforce cross-family invariant FIRST:
+If REVIEWER_BACKEND = `copilot`, enforce opposite-family routing from the declared executor identity FIRST:
 - Require `--executor-model <model>` parameter. If missing → `REVIEW_UNAVAILABLE`. Stop.
 - Derive `executor_family` from `executor_model`:
   - Model names containing `gpt`, `o1`, `o3`, `o4`, `chatgpt` → `openai`
@@ -193,6 +203,10 @@ If REVIEWER_BACKEND = `copilot`, enforce cross-family invariant FIRST:
   - Model names containing `gemini` → `google`
   - Anything else → `unknown`
 - If `executor_family` is `unknown` → `REVIEW_UNAVAILABLE` (fail closed). Stop.
+- Treat this as route selection, not attestation: persist
+  `executor_model_source: caller-declared`; a derived `family_relation:
+  different` remains `independence_verified: unverified` unless a future
+  stable runtime signal independently proves the parent executor model.
 - Router picks opposite-family profile:
   - `openai` → `"aris-reviewer-claude"` (anthropic, forced cross-family)
   - `anthropic` → `"aris-reviewer-openai"` (openai, forced cross-family)
@@ -207,7 +221,7 @@ If REVIEWER_BACKEND = `copilot`, enforce cross-family invariant FIRST:
   (documented Copilot CLI form):
   - Replace `mcp__codex__codex` with `copilot --agent "<profile>" --model "<parsed-model>" --effort xhigh --allow-tool=read --prompt "..."`
   - Each round is a fresh `copilot --agent` call with the same profile +
-    `REVIEWER_MEMORY.md` artifact carrying round-to-round state.
+    `review-stage/REVIEWER_MEMORY.md` artifact carrying round-to-round state.
   - The prompt text and Review Tracing are identical to the Codex path.
   - If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` (no MCP fallback).
   - If `REVIEWER_DIFFICULTY = nightmare`, skip Copilot (nightmare requires Codex
@@ -269,7 +283,7 @@ mcp__codex__codex:
     [Round N/MAX_ROUNDS of autonomous review loop]
 
     ## Your Reviewer Memory (persistent across rounds)
-    [Paste full contents of REVIEWER_MEMORY.md here]
+    [Paste full contents of review-stage/REVIEWER_MEMORY.md here]
 
     IMPORTANT: You have memory from prior rounds. Check whether your
     previous suspicions were genuinely addressed or merely sidestepped.
@@ -302,7 +316,7 @@ You are an adversarial senior ML reviewer (NeurIPS/ICML level).
 This is Round N/MAX_ROUNDS of an autonomous review loop.
 
 ## Your Reviewer Memory (persistent across rounds)
-[Paste full contents of REVIEWER_MEMORY.md]
+[Paste full contents of review-stage/REVIEWER_MEMORY.md]
 
 ## Instructions
 You have FULL READ ACCESS to this repository. The author (Claude) does NOT
@@ -342,7 +356,7 @@ Then extract structured fields:
 
 #### Phase B.5: Reviewer Memory Update
 
-After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`:
+After parsing the assessment, append to the canonical memory artifact at `review-stage/REVIEWER_MEMORY.md`. Copilot backend depends on this file for round-to-round continuity (every round is a fresh process), so the update runs regardless of `REVIEWER_DIFFICULTY`. No project-root fallback is permitted; create `review-stage/` before the first append:
 
 ```markdown
 # Reviewer Memory
@@ -385,21 +399,70 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 
 #### Phase B.5.1: Stop-Evaluation Gate
 
-**STOP CONDITION — branch by `round_backend` (the backend that actually ran this round), never by the forward-looking `REVIEWER_BACKEND`:**
+**STOP CONDITION — branch by `round_backend` (the backend that actually ran this round), never by the forward-looking `REVIEWER_BACKEND`. Use the executable transition table in `review_gate.py`; resolve it through the canonical helper chain in `shared-references/integration-contract.md` §2. Its JSON `decision` and `next_backend` fields are authoritative. If the helper cannot be resolved or executed, emit `REVIEW_UNAVAILABLE`; do not improvise a transition.**
 
-- **If `round_backend ∈ {codex, manual}`:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify), first verify the current call's trace contains known executor/reviewer model identities whose model-derived families differ and `independence_verified` is `true`. A manual response must also contain its required `Reviewer-Model:` identity. If provenance is missing, unknown, same-family, or inconsistent, emit `REVIEW_UNAVAILABLE`; otherwise stop and let Phase E write exactly one receipt. (This gate decides; Phase E documents. Do NOT write the acquittal line here.)
-- **If `round_backend = copilot`:** Copilot is drive-only by policy. Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh` effort has already issued an independently verified positive verdict **in this same run**. Scan `review-stage/ACQUITTAL_LOG.jsonl` and accept a line only when all of these hold: its `run_id` matches the current run; `backend` is `codex` or `manual`; effort is exactly `xhigh` (case-insensitive); verdict/score are qualifying; `executor_model` and `reviewer_model` are non-empty; re-deriving their families gives the stored known families; the stored executor family equals the current executor's model-derived family; reviewer family differs; `independence_verified` is exactly `true`; and `trace_id` names an existing `.aris/traces/<trace_id>/` whose request/meta identity fields match the receipt. Never trust receipt family strings without re-deriving them from the models. If a valid acquittal exists: stop. If none exists and Copilot returned a positive verdict, schedule the next round on a cross-family backend for mandatory acquittal.
+Invoke the gate once per completed round. Pass model strings only—the helper
+derives families internally and does not accept caller-supplied family labels.
+Backend availability must be positively established from the current host's
+tool configuration; both finalizers default to unavailable:
 
-    **Escalation backend selection (cross-family check):** Determine the escalation backend by comparing `executor_family` (derived from `--executor-model` in Phase A):
-    - `executor_family = anthropic` or `google` → escalate to `codex` (codex uses GPT models = openai family, guaranteed cross-family from non-openai executors).
-    - `executor_family = openai` → escalate to `manual` instead of `codex` (codex is same-family, defeating the cross-family acquittal guarantee). Manual is terminal: require the response's exact `Reviewer-Model:` identity, derive a known non-OpenAI family from it, and persist the same identity in the trace/receipt. Missing, unknown, or OpenAI-family identity is `REVIEW_UNAVAILABLE`; there is no codex fallback.
-    - `executor_family = unknown` → `REVIEW_UNAVAILABLE` (fail closed — cannot guarantee cross-family acquittal).
+```bash
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" || exit 1
+if [ -z "${ARIS_REPO:-}" ] && [ -f .aris/installed-skills.txt ]; then
+    ARIS_REPO=$(awk -F'\t' '$1=="repo_root"{print $2; exit}' .aris/installed-skills.txt 2>/dev/null) || true
+fi
+if [ -z "${ARIS_REPO:-}" ] && [ -f "$HOME/.aris/repo" ]; then
+    ARIS_REPO=$(cat "$HOME/.aris/repo" 2>/dev/null) || true
+fi
+REVIEW_GATE=".aris/tools/review_gate.py"
+[ -f "$REVIEW_GATE" ] || REVIEW_GATE="tools/review_gate.py"
+[ -f "$REVIEW_GATE" ] || { [ -n "${ARIS_REPO:-}" ] && REVIEW_GATE="$ARIS_REPO/tools/review_gate.py"; }
+[ -f "$REVIEW_GATE" ] || REVIEW_GATE=""
+[ -n "$REVIEW_GATE" ] || { echo "REVIEW_UNAVAILABLE: review_gate.py not resolved" >&2; exit 1; }
 
-    **State snapshot before escalation:** `round_backend` was already snapshotted at round start (step 0) and equals `"copilot"`. Update `reviewer_backend` in `REVIEW_STATE.json` to the selected escalation backend for the next round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. Phase E uses `round_backend` (still `"copilot"`) to label which backend ran the CURRENT round. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
+GATE_REVIEWER_MODEL="${REPORTED_REVIEWER_MODEL:-${REQUESTED_REVIEWER_MODEL:-${REVIEWER_MODEL:-}}}"
+GATE_ARGS=(
+  --round-backend "$round_backend"
+  --score "$SCORE"
+  --verdict "$VERDICT"
+  --executor-model "${EXECUTOR_MODEL:-}"
+  --reviewer-model "$GATE_REVIEWER_MODEL"
+)
+if [[ "$round_requires_external_acquittal" == "true" ]]; then
+  GATE_ARGS+=(--requires-external-acquittal)
+fi
+if [[ "${CODEX_AVAILABLE:-false}" == "true" ]]; then
+  GATE_ARGS+=(--codex-available)
+fi
+if [[ "${MANUAL_AVAILABLE:-false}" == "true" ]]; then
+  GATE_ARGS+=(--manual-available)
+fi
+if [[ "${MANUAL_IDENTITY_REPORTED:-false}" == "true" ]]; then
+  GATE_ARGS+=(--manual-identity-reported)
+fi
+GATE_JSON=$(python3 "$REVIEW_GATE" "${GATE_ARGS[@]}") || {
+  echo "REVIEW_UNAVAILABLE: review gate execution failed" >&2
+  exit 1
+}
+```
 
-**Why `ACQUITTAL_LOG.jsonl` instead of `REVIEW_STATE.json`:** `REVIEW_STATE.json` is overwritten every round (only the latest state matters per the state contract). A prior run's completed state with a codex/manual positive verdict is obliterated when the current run's first round is written. The append-only `ACQUITTAL_LOG.jsonl` is never overwritten — but each entry carries a `run_id`, and only entries whose `run_id` matches the current invocation count. A stale acquittal from a prior run (different `run_id`) is an audit artifact, not a valid stop signal for the current run.
+Parse `GATE_JSON` as JSON; never infer a transition from the helper's prose
+`reason`. A `review_unavailable` decision is terminal. Copy `next_backend` and
+`requires_external_acquittal` into forward-looking state for `escalate` or
+`continue`; only `stop` enters the successful termination path.
 
-This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
+- **Default Codex compatibility (`round_backend = codex`, `round_requires_external_acquittal = false`):** score >= 6 AND verdict ∈ {"ready", "almost"} stops exactly as it did before this Copilot integration. Executor identity is advisory trace metadata and may be absent; do not turn a valid default-Codex positive verdict into `REVIEW_UNAVAILABLE`. This path does not write an external-finalizer receipt.
+- **Existing Oracle/Agy routes:** when explicitly selected outside a Copilot-finalizer state, their qualifying positive verdicts retain the same pre-Copilot stop behavior. They are not valid substitutes once `requires_external_acquittal=true`; that state permits only Codex/manual.
+- **Explicit manual backend:** a positive verdict still requires the response's exact `Reviewer-Model:` header. Missing identity is `REVIEW_UNAVAILABLE`.
+- **Copilot drive round:** Copilot never stops the loop. A negative verdict continues on Copilot. A positive verdict returns `decision: escalate`, sets `requires_external_acquittal: true`, and chooses the next backend from the caller-declared executor family:
+  - `anthropic` or `google` → Codex when available, otherwise manual;
+  - `openai` → manual only (Codex would be same-family);
+  - `unknown` or no policy-approved finalizer → `REVIEW_UNAVAILABLE`.
+- **External-finalizer round (`round_requires_external_acquittal = true`):** Codex/manual may stop on a qualifying positive verdict only when the model strings derive to known, different families; manual also requires its reported model header. This is fail-closed route consistency, not independent executor attestation. Record `identity_assurance: caller_declared` and `independence_verified: "unverified"`. A negative finalizer verdict continues on the same finalizer backend with the obligation still true.
+
+On Copilot escalation, update the forward-looking `reviewer_backend` and `requires_external_acquittal` in `REVIEW_STATE.json`; keep `round_backend` and `round_requires_external_acquittal` unchanged for Phase E. Once a finalizer returns a qualifying positive verdict, set the forward flag to false and stop. `ACQUITTAL_LOG.jsonl` is an append-only audit receipt, never an input that lets a later Copilot verdict stop the loop.
+
+This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to `review-stage/REVIEWER_MEMORY.md` before exit.
 
 #### Phase B.6: Debate Protocol (hard + nightmare only)
 
@@ -430,11 +493,11 @@ Send the executor's rebuttal back to the reviewer for a ruling:
 
 *Hard mode — use the selected backend for the rebuttal step:*
 
-*For copilot:* fresh `copilot --agent` subprocess with the same profile + REVIEWER_MEMORY.md context:
+*For copilot:* fresh `copilot --agent` subprocess with the same profile + `review-stage/REVIEWER_MEMORY.md` context:
 ```bash
 # Store the generated rebuttal as data; never paste memory/rebuttal text into
 # a heredoc body, because either may contain a line matching its delimiter.
-MEMORY_FILE="REVIEWER_MEMORY.md"
+MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"
 REBUTTAL_FILE="review-stage/ROUND_${ROUND}_REBUTTAL.md"
 [[ -f "$MEMORY_FILE" && -f "$REBUTTAL_FILE" ]] || {
   echo "REVIEW_UNAVAILABLE: missing memory or rebuttal artifact" >&2
@@ -632,18 +695,19 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 - Difficulty: [medium/hard/nightmare]
 ```
 
-**Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, threadId, score, verdict, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
+**Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, threadId, score, verdict, `reviewer_backend`, `requires_external_acquittal`, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
 
 **Backend labeling for the state file:** The `reviewer_backend` field in `REVIEW_STATE.json` controls the continuation mechanism for the NEXT round (used on resume), not the round just documented. During Phase E:
 - Use `round_backend` (snapshotted at round start, step 0) to label the CURRENT round in `AUTO_REVIEW.md` documentation (e.g., "Reviewer backend: copilot").
-- Write `reviewer_backend` in `REVIEW_STATE.json` to the value that should control the NEXT round — this is either (a) unchanged from the current round's backend if no escalation occurred, or (b) the escalation backend set during Phase B.5.1. Never write `round_backend` itself to the state file; the state file's `reviewer_backend` is always forward-looking.
+- Use `round_requires_external_acquittal` to decide whether the CURRENT round was a Copilot-triggered finalizer. Write `requires_external_acquittal` in state as the forward-looking obligation for the NEXT round.
+- Write `reviewer_backend` in `REVIEW_STATE.json` to the value that should control the NEXT round — this is either (a) unchanged from the current round's backend if no escalation occurred, or (b) the escalation backend set during Phase B.5.1. Never substitute `round_backend` for this forward-looking field.
 - When no escalation happened, `round_backend == reviewer_backend` (trivially safe).
 
-**If `round_backend ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
+**If `round_backend ∈ {codex, manual}` AND `round_requires_external_acquittal = true` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append one external-finalizer line to `review-stage/ACQUITTAL_LOG.jsonl`:
 ```
-{"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"executor_model":"<from-trace>","executor_family":"<derived-from-executor_model>","reviewer_model":"<from-trace-or-manual-Reviewer-Model>","reviewer_family":"<derived-from-reviewer_model>","independence_verified":true,"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
+{"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"executor_model":"<from-trace>","executor_model_source":"caller-declared","executor_family":"<derived-from-executor_model>","reviewer_model":"<from-trace-or-manual-Reviewer-Model>","reviewer_model_source":"<requested|backend-reported>","reviewer_family":"<derived-from-reviewer_model>","family_relation":"different","identity_assurance":"caller_declared","independence_verified":"unverified","trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
 ```
-Use `>>` (append), never `>`. Write only after re-deriving both families from the trace's model identities and confirming they are known/different and the trace says `independence_verified: true`; never copy caller-provided family claims blindly. The `trace_id` MUST be the actual trace directory path relative to `.aris/traces/` (e.g., `auto-review-loop/2026-07-13_run01`), matching the RUN_ID format from `save_trace.sh`: `<YYYY-MM-DD>_run<NN>` with the skill-name subdirectory prefix. Do NOT fabricate a synthetic `trace_...` identifier — use the real directory that `save_trace.sh` created for this round's reviewer call.
+Use `>>` (append), never `>`. Re-derive both families from model strings and reject unknown/same-family pairs, but copy the model-source and assurance fields without upgrading them. The `trace_id` MUST be the actual trace directory path relative to `.aris/traces/` (e.g., `auto-review-loop/2026-07-13_run01`), matching the RUN_ID format from `save_trace.sh`: `<YYYY-MM-DD>_run<NN>` with the skill-name subdirectory prefix. Do NOT fabricate a synthetic `trace_...` identifier.
 
 **Append to `findings.md`** (when `COMPACT = true`): one-line entry per key finding this round:
 
@@ -678,7 +742,7 @@ When loop ends (positive assessment or max rounds):
 - **Large file handling**: If the Write tool fails due to file size, immediately retry using Bash (`cat << 'EOF' > file`) to write in chunks. Do NOT ask the user for permission — just do it silently.
 
 - ALWAYS use `config: {"model_reasoning_effort": "xhigh"}` for maximum reasoning depth
-- **Copilot backend remains drive-only by policy.** Every Copilot call explicitly pins the parsed profile model with `--model`, pins `--effort xhigh`, grants only `--allow-tool=read`, and records `effort_unpinned: false`. Final acceptance still requires a separately traced `codex` or `manual` reviewer whose model-derived family differs from the executor family.
+- **Copilot backend remains drive-only by policy.** Every Copilot call explicitly pins the parsed profile model with `--model`, pins `--effort xhigh`, grants only `--allow-tool=read`, and records `effort_unpinned: false`. Final acceptance still requires a separately traced `codex` or `manual` finalizer. The route is selected from the caller-declared executor model; trace it as `identity_assurance: caller_declared`, not independently verified provenance.
 - Save `threadId` (codex/manual) or `reviewer_profile` (copilot) from first call; use the appropriate continuation tool for subsequent rounds per the Reviewer Calling Convention
 - **Anti-hallucination citations**: When adding references during fixes, NEVER fabricate BibTeX. Use the same DBLP → CrossRef → `[VERIFY]` chain as `/paper-write`: (1) `curl -s "https://dblp.org/search/publ/api?q=TITLE&format=json"` → get key → `curl -s "https://dblp.org/rec/{key}.bib"`, (2) if not found, `curl -sLH "Accept: application/x-bibtex" "https://doi.org/{doi}"`, (3) if both fail, mark with `% [VERIFY]`. Do NOT generate BibTeX from memory.
 - Be honest — include negative results and failed experiments
@@ -691,13 +755,13 @@ When loop ends (positive assessment or max rounds):
 
 ## Prompt Template for Round 2+
 
-Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
+Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `review-stage/REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
 
 ```
 [For copilot:]
 
 # Dynamic values remain data; do not paste them into heredoc source.
-MEMORY_FILE="REVIEWER_MEMORY.md"
+MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"
 CHANGED_PATHS="<newline-delimited changed paths>"
 DIFF_PATH="<diff artifact path or git range>"
 RESULT_PATHS="<newline-delimited result paths>"
@@ -750,70 +814,17 @@ copilot --agent "$REVIEWER_PROFILE" --model "$REVIEWER_MODEL" \
 
 After each reviewer call (`mcp__codex__codex`, `mcp__codex__codex-reply`, `mcp__manual_review__review`, `mcp__manual_review__review_reply`, `copilot --agent` subprocess for copilot backend), save the trace following `shared-references/review-tracing.md` (Policy C — forensic; never silently skip). Use `save_trace.sh` (resolved per the chain in `shared-references/integration-contract.md` §2) or write files directly to `.aris/traces/<skill>/<date>_run<NN>/`. Respect the `--- trace:` parameter (default: `full`).
 
-## Acquittal Gate Test Specifications
+## Stop-Gate State-Transition Tests
 
-The following test cases validate the `run_id` + append-only acquittal receipt mechanism. These must be verified before merging changes to the stop-evaluation gate.
+The canonical transition table is `tools/review_gate.py` in the ARIS repository (resolved at runtime as `review_gate.py` through the helper chain) and is covered by `tests/test_review_gate.py`. The required cases are:
 
-### Test 1: Fresh Start — No Acquittal, Copilot Positive → Escalation
+1. Default Codex positive → `stop` even when executor model identity is absent (backward compatibility).
+2. High score + `not ready` → `continue`.
+3. Copilot positive under declared Anthropic/Google executor → `escalate` to Codex and set `requires_external_acquittal=true`.
+4. Copilot positive under declared OpenAI executor → `escalate` to manual; Codex is forbidden as same-family.
+5. Copilot negative → `continue` on Copilot; Copilot never writes a finalizer receipt.
+6. Unknown executor family or unavailable policy finalizer → `REVIEW_UNAVAILABLE`.
+7. Positive finalizer with known, different declared families → `stop`, while identity assurance remains `caller_declared` / `unverified`.
+8. Same-family finalizer or manual finalizer without `Reviewer-Model:` → `REVIEW_UNAVAILABLE`.
 
-**Setup:** Delete `review-stage/REVIEW_STATE.json` and `review-stage/ACQUITTAL_LOG.jsonl`. Run with `--reviewer: copilot --executor-model claude-sonnet-4-5`. No same-run acquittal in `ACQUITTAL_LOG.jsonl`.
-
-**Action:** Copilot round 1 returns score=7, verdict="ready".
-
-**Expected:** Loop does NOT stop immediately on the copilot verdict alone. Acquittal check scans `ACQUITTAL_LOG.jsonl` for run_id match — file is empty. The escalation path triggers: `reviewer_backend` switches to `codex` for round 2, which performs a mandatory cross-family acquittal review. If codex returns positive, Phase E writes the acquittal line and the loop stops normally. Without escalation, a pure copilot run would iterate until MAX_ROUNDS without ever being able to terminate on a positive verdict.
-
-### Test 2: Codex Acquits → Copilot Stops (Same Run, Mixed Backend)
-
-**Setup:** Fault-injection recovery test. In one in-progress run, a cross-family codex call has written a positive receipt with current `run_id`, `effort: "xhigh"`, model-derived `executor_family=anthropic`, `reviewer_family=openai`, `independence_verified=true`, and a matching trace directory, but the process is interrupted before completion status is persisted. Resume the same run with its forward backend explicitly set to copilot.
-
-**Action B:** Copilot returns score=8, verdict="ready". The stop gate re-derives both receipt families from their model strings and verifies the matching trace identity fields before accepting the same-run receipt.
-
-**Expected:** Copilot-issued verdict terminates because a same-run codex acquittal with validated effort and trace exists in the append-only log.
-
-### Test 3: Stale Completed State — Old Run's Acquittal Does NOT Satisfy New Run
-
-**Setup:** Run 1 (run_id=`run_20260713_aaaaaaaa`) completes with `status: "completed"` and writes acquittal: `{"run_id":"run_20260713_aaaaaaaa","backend":"codex","verdict":"ready","score":7}` to `ACQUITTAL_LOG.jsonl`. Then a fresh-start invocation generates run_id=`run_20260713_bbbbbbbb` and begins with `REVIEWER_BACKEND=copilot`.
-
-**Action:** Copilot round 1 returns score=7, verdict="ready". Stop gate scans `ACQUITTAL_LOG.jsonl`.
-
-**Expected:** Loop does NOT stop. The acquittal line has `run_id=run_20260713_aaaaaaaa` which does NOT match the current `run_id=run_20260713_bbbbbbbb`. Only a current-run acquittal counts.
-
-### Test 4: Legacy State File — No run_id Field
-
-**Setup:** Create a `REVIEW_STATE.json` with `status: "in_progress"`, a fresh timestamp, but NO `run_id` field (simulating pre-fix state). Resume.
-
-**Expected:** Initialization detects missing `run_id` and generates one. Log message: "No run_id in legacy state file; assigned run_<...> for this resume." Subsequent acquittal checks use the newly generated run_id.
-
-### Test 5: Copilot NEVER Writes Acquittal
-
-**Setup:** Fresh start with `REVIEWER_BACKEND=copilot`. Copilot returns score=8, verdict="ready" in round 1. The escalation path triggers: `REVIEWER_BACKEND` switches to `codex` for round 2. Codex round 2 returns score=7, verdict="ready".
-
-**Action:** After round 1 Phase E: check `ACQUITTAL_LOG.jsonl`. After round 2 Phase E: check `ACQUITTAL_LOG.jsonl`.
-
-**Expected:** After round 1: `ACQUITTAL_LOG.jsonl` is NOT appended to. Only `codex` or `manual` backends write acquittal lines. After round 2: exactly one acquittal line appears (from the codex escalation round), with `backend=codex`, same `run_id`. The copilot round 1 verdict is recorded in `REVIEW_STATE.json` and `AUTO_REVIEW.md` but did NOT create an acquittal receipt.
-
-### Test 6: Append-Only Integrity
-
-**Setup:** Run 1 reaches a positive cross-family codex verdict and appends one receipt, then completes. Start Run 2 with a new `run_id`; it also reaches a positive verified verdict and appends one receipt.
-
-**Action:** After the loop, inspect `ACQUITTAL_LOG.jsonl`.
-
-**Expected:** File contains exactly 2 lines with different run IDs. The Run 1 line remains byte-for-byte intact after Run 2 appends; file size increases monotonically. A single loop cannot produce a later round after a positive stop verdict.
-
-### Test 7: Manual Backend Acquittal Works Same as Codex
-
-**Setup:** Fresh start with `REVIEWER_BACKEND=manual`. The response starts with an exact `Reviewer-Model:` identity whose derived family is known and differs from the executor family, and returns score=7, verdict="ready". The trace records those identities and `independence_verified=true`.
-
-**Action:** Phase E appends to `ACQUITTAL_LOG.jsonl`.
-
-**Expected:** Acquittal line with `backend=manual` plus both model/family identities is written. Repeat with a missing, unknown, or same-family `Reviewer-Model:` value: no receipt is written and the mandatory path returns `REVIEW_UNAVAILABLE`.
-
-### Test 8: Pure Copilot Run — Escalation Completes the Loop
-
-**Setup:** Fresh start with `REVIEWER_BACKEND=copilot --executor-model claude-sonnet-4-5`. Copilot round 1 returns score=7, verdict="ready". No prior acquittal in `ACQUITTAL_LOG.jsonl`. MAX_ROUNDS=4.
-
-**Action A:** Stop gate (Phase B.5.1) determines: copilot positive, no same-run acquittal with valid effort/trace → escalation triggered. `reviewer_backend` in `REVIEW_STATE.json` switches to `codex`. Round 2 begins.
-
-**Action B:** Codex round 2 returns score=8, verdict="ready". Stop gate (codex branch): score >= 6, verdict "ready" → stop. Phase E appends acquittal line to `ACQUITTAL_LOG.jsonl` with `effort="xhigh"`, valid `trace_id`.
-
-**Expected:** Loop stops at round 2. `ACQUITTAL_LOG.jsonl` has exactly 1 acquittal line (`backend=codex`). The escalation path is the only mechanism that lets a pure copilot-driven loop terminate on a positive verdict — without it, copilot would iterate until MAX_ROUNDS with no path to a valid acquittal.
+`ACQUITTAL_LOG.jsonl` is tested as append-only audit output; it is never consulted to let a subsequent Copilot verdict terminate a run.

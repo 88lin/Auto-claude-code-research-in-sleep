@@ -818,22 +818,31 @@ def test_copilot_prompt_templates_keep_untrusted_text_out_of_heredocs() -> None:
     assert 'cat -- "$MEMORY_FILE"' in skill_text
     assert 'cat -- "$REBUTTAL_FILE"' in skill_text
     assert 'cat -- "$MEMORY_FILE"' in routing_text
+    for text in (skill_text, routing_text):
+        assert 'MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"' in text
+        assert 'MEMORY_FILE="REVIEWER_MEMORY.md"' not in text
 
 
-def test_stop_gate_uses_current_round_backend_and_model_derived_families() -> None:
+def test_stop_gate_uses_snapshotted_state_and_executable_transition_table() -> None:
     skill_text = (REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md").read_text()
 
     assert "branch by `round_backend`" in skill_text
     assert "never by the forward-looking `REVIEWER_BACKEND`" in skill_text
-    assert 'executor_model' in skill_text
-    assert 'reviewer_model' in skill_text
-    assert "Never trust receipt family strings" in skill_text
+    assert "round_requires_external_acquittal" in skill_text
+    assert "tools/review_gate.py" in skill_text
+    assert 'GATE_JSON=$(python3 "$REVIEW_GATE" "${GATE_ARGS[@]}")' in skill_text
+    assert '--executor-model "${EXECUTOR_MODEL:-}"' in skill_text
+    assert "both finalizers default to unavailable" in skill_text
+    assert "Default Codex compatibility" in skill_text
+    assert "do not turn a valid default-Codex positive verdict into `REVIEW_UNAVAILABLE`" in skill_text
+    assert 'identity_assurance: caller_declared' in skill_text
+    assert 'independence_verified: "unverified"' in skill_text
 
 
 # --- Legacy-state resume tests ---
 
-def test_legacy_review_state_missing_backend_defaults_to_codex(tmp_path: Path) -> None:
-    """REVIEW_STATE.json without reviewer_backend defaults to 'codex'."""
+def test_legacy_review_state_defaults_to_codex_without_finalizer_obligation(tmp_path: Path) -> None:
+    """Legacy state must not inherit Copilot-finalizer semantics."""
     state_dir = tmp_path / "review-stage"
     state_dir.mkdir()
     state_file = state_dir / "REVIEW_STATE.json"
@@ -855,7 +864,9 @@ def test_legacy_review_state_missing_backend_defaults_to_codex(tmp_path: Path) -
     loaded = json.loads(state_file.read_text())
     # When reviewer_backend is absent, resume should default to codex
     backend = loaded.get("reviewer_backend", "codex")
+    requires_external_acquittal = loaded.get("requires_external_acquittal", False)
     assert backend == "codex", f"Legacy state missing reviewer_backend should default to codex, got: {backend}"
+    assert requires_external_acquittal is False
 
 
 def test_modern_review_state_has_backend_field(tmp_path: Path) -> None:
@@ -865,6 +876,7 @@ def test_modern_review_state_has_backend_field(tmp_path: Path) -> None:
 
     assert "reviewer_backend" in skill_text
     assert "reviewer_profile" in skill_text
+    assert "requires_external_acquittal" in skill_text
     # Verify copilot-specific fields
     assert "copilot" in skill_text.lower()
 
@@ -974,7 +986,7 @@ def test_save_trace_rejects_spoofed_family_and_independence(tmp_path: Path) -> N
     assert run_meta["reviewer_family"] == "openai"
 
 
-def test_save_trace_derives_cross_family_from_models(tmp_path: Path) -> None:
+def test_save_trace_records_cross_family_relation_without_claiming_attestation(tmp_path: Path) -> None:
     request, _, _ = _save_trace_request(
         tmp_path,
         "--backend", "copilot",
@@ -989,7 +1001,25 @@ def test_save_trace_derives_cross_family_from_models(tmp_path: Path) -> None:
 
     assert request["executor_family"] == "anthropic"
     assert request["reviewer_family"] == "openai"
-    assert request["independence_verified"] is True
+    assert request["executor_model_source"] == "caller-declared"
+    assert request["reviewer_model_source"] == "requested"
+    assert request["family_relation"] == "different"
+    assert request["independence_verified"] == "unverified"
+
+
+def test_save_trace_default_codex_identity_is_advisory(tmp_path: Path) -> None:
+    request, meta, run_meta = _save_trace_request(
+        tmp_path,
+        "--backend", "codex",
+        "--model", "gpt-5.6-sol",
+        "--effort", "xhigh",
+    )
+
+    for artifact in (request, meta, run_meta):
+        assert artifact["executor_model"] is None
+        assert artifact["executor_model_source"] == "unavailable"
+        assert artifact["family_relation"] == "unknown"
+        assert artifact["independence_verified"] == "unverified"
 
 
 def test_save_trace_unknown_model_is_unverified(tmp_path: Path) -> None:
@@ -1007,6 +1037,25 @@ def test_save_trace_unknown_model_is_unverified(tmp_path: Path) -> None:
     assert request["executor_family"] == "unknown"
     assert request["reviewer_family"] == "openai"
     assert request["independence_verified"] == "unverified"
+
+
+def test_save_trace_backend_reported_model_takes_precedence(tmp_path: Path) -> None:
+    request, meta, _ = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "xhigh",
+        "--executor-model", "gpt-5.4",
+        "--requested-reviewer-model", "gpt-5.4",
+        "--reported-reviewer-model", "claude-sonnet-4.5",
+    )
+
+    assert request["reviewer_family"] == "anthropic"
+    assert meta["model_family"] == "anthropic"
+    for artifact in (request, meta):
+        assert artifact["reviewer_model_source"] == "backend-reported"
+        assert artifact["family_relation"] == "different"
+        assert artifact["independence_verified"] == "unverified"
 
 
 def test_review_tracing_doc_copilot_model_is_gpt5_4(tmp_path: Path) -> None:
@@ -1046,3 +1095,6 @@ def test_reviewer_routing_copilot_scope_consistent(tmp_path: Path) -> None:
     copilot_section = doc_text[copilot_section_idx:copilot_section_idx + 800]
     assert "auto-review-loop" in copilot_section
     assert "only" in copilot_section.lower()
+    assert "drive-only partial implementation" in doc_text
+    assert "not the issue's requested automatic/default or end-to-end MCP-free acceptance path" in doc_text
+    assert "positive Copilot verdict must be finalized by Codex/manual" in doc_text
