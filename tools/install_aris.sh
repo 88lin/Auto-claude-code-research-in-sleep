@@ -66,6 +66,7 @@ BLOCK_BEGIN="<!-- ARIS:BEGIN -->"
 BLOCK_END="<!-- ARIS:END -->"
 SAFE_NAME_REGEX='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 SUPPORT_NAMES=("shared-references")
+AGENT_PROFILES_SRC=".github/agents"  # Copilot agent profiles deployed alongside skills (F5)
 EXCLUDE_TOP_NAMES=("skills-codex" "skills-codex.bak")  # not skills, not symlinked
 
 # ─── Argument parsing ─────────────────────────────────────────────────────────
@@ -669,6 +670,84 @@ remove_tools_symlink() {
     fi
 }
 
+# F5: Deploy Copilot agent profiles from <aris-repo>/.github/agents/ to
+# <project>/.github/agents/. Each .agent.md file is symlinked individually;
+# user-created files/dirs/symlinks at the target path are left alone.
+# Pure-additive — existing users who don't rerun the installer never see
+# this. Idempotent across re-runs.
+ensure_agent_profiles() {
+    local src_dir="$ARIS_REPO/$AGENT_PROFILES_SRC"
+    [[ -d "$src_dir" ]] || return 0  # no profiles to deploy
+    local target_dir="$PROJECT_PATH/.github/agents"
+    local deployed=0 name src target
+
+    for src in "$src_dir"/*.agent.md; do
+        [[ -f "$src" ]] || continue
+        name="$(basename "$src")"
+        target="$target_dir/$name"
+
+        if is_symlink "$target"; then
+            local cur; cur="$(read_link_target "$target")"
+            [[ "$cur" != /* ]] && cur="$(canonicalize "$(dirname "$target")/$cur")"
+            if [[ "$cur" == "$src" ]]; then
+                continue  # already correct
+            fi
+            warn ".github/agents/$name already exists with different target ($cur); leaving alone"
+            continue
+        fi
+
+        if [[ -e "$target" ]]; then
+            warn ".github/agents/$name already exists as a non-symlink path; leaving alone"
+            continue
+        fi
+
+        if $DRY_RUN; then
+            log "  (dry-run) ln -s $src $target"
+        else
+            mkdir -p "$target_dir"
+            ln -s "$src" "$target"
+            deployed=$((deployed + 1))
+        fi
+    done
+
+    if ! $DRY_RUN && (( deployed > 0 )); then
+        log "  + .github/agents/ ($deployed copilot profile(s) deployed)"
+    fi
+}
+
+# Counterpart for uninstall: only remove agent profile symlinks whose
+# target is inside <aris-repo>/.github/agents/. User-created files or
+# differently-targeted symlinks are left alone.
+remove_agent_profiles() {
+    local target_dir="$PROJECT_PATH/.github/agents"
+    [[ -d "$target_dir" ]] || return 0
+    local src_dir="$ARIS_REPO/$AGENT_PROFILES_SRC"
+    [[ -d "$src_dir" ]] || return 0
+    local name target removed=0
+
+    for target in "$target_dir"/*.agent.md; do
+        [[ -L "$target" ]] || continue
+        name="$(basename "$target")"
+        local cur; cur="$(read_link_target "$target")"
+        [[ "$cur" != /* ]] && cur="$(canonicalize "$(dirname "$target")/$cur")"
+        # Only remove if target points into our source dir
+        if [[ "$cur" == "$src_dir/$name" ]]; then
+            if $DRY_RUN; then
+                log "  (dry-run) rm $target"
+            else
+                rm -f "$target"
+                removed=$((removed + 1))
+            fi
+        fi
+    done
+
+    if ! $DRY_RUN && (( removed > 0 )); then
+        log "  - .github/agents/ ($removed copilot profile(s) removed)"
+        # Remove directory if empty after cleanup
+        rmdir "$target_dir" 2>/dev/null || true
+    fi
+}
+
 commit_manifest() {
     local manifest_tmp="$1"
     if $DRY_RUN; then log "  (dry-run) would commit manifest"; return; fi
@@ -772,6 +851,8 @@ do_uninstall() {
     # is exactly the managed symlink. Anything else (user-created dir, custom
     # symlink target) is left alone.
     remove_tools_symlink
+    # F5: best-effort cleanup of managed agent profile symlinks.
+    remove_agent_profiles
     if ! $DRY_RUN; then
         # Keep .prev for forensics, remove current manifest
         [[ -f "$MANIFEST_PATH" ]] && mv -f "$MANIFEST_PATH" "$MANIFEST_PREV"
@@ -857,6 +938,8 @@ if $DRY_RUN; then
     # #174 preview: print the planned `.aris/tools` symlink action (function
     # is idempotent + DRY_RUN-aware, so it just logs in this mode)
     ensure_tools_symlink
+    # F5 preview: print planned agent profile symlinks.
+    ensure_agent_profiles
     log ""
     log "(dry-run) no changes made"
     exit 0
@@ -880,6 +963,9 @@ commit_manifest "$MANIFEST_TMP"
 # #174 Phase 0: ensure project-local .aris/tools symlink (purely additive).
 # Runs after manifest commit so a failure here doesn't roll back skill links.
 ensure_tools_symlink
+# F5: deploy Copilot agent profiles from <aris-repo>/.github/agents/ (purely additive).
+ensure_agent_profiles
+
 
 # Handle prefer-upstream legacy archive AFTER successful apply
 if [[ "$LEGACY_KIND" == "real_dir" && "$MIGRATE_COPY" == "prefer-upstream" ]]; then
