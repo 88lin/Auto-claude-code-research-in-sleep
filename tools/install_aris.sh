@@ -683,6 +683,10 @@ ensure_agent_profiles() {
 
     for src in "$src_dir"/*.agent.md; do
         [[ -f "$src" ]] || continue
+        # Resolve symlink and verify it's within the expected directory
+        local resolved; resolved="$(canonicalize "$src")"
+        local src_canon; src_canon="$(canonicalize "$src_dir")"
+        [[ "$resolved" == "$src_canon"/* ]] || { warn "skipping external symlink: $src -> $resolved"; continue; }
         name="$(basename "$src")"
         target="$target_dir/$name"
 

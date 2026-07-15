@@ -195,6 +195,10 @@ build_upstream_inventory() {
     if [[ -d "$agents_dir" ]]; then
         for f in "$agents_dir"/*.md; do
             [[ -f "$f" ]] || continue
+            # Resolve symlink and verify it's within the expected directory
+            local resolved; resolved="$(canonicalize "$f")"
+            local agents_canon; agents_canon="$(canonicalize "$agents_dir")"
+            [[ "$resolved" == "$agents_canon"/* ]] || { warn "skipping external symlink: $f -> $resolved"; continue; }
             agent_name="$(basename "$f")"
             base_name="${agent_name%.agent.md}"
             is_safe_name "$base_name" || { warn "skipping unsafe agent name: $agent_name"; continue; }
