@@ -246,16 +246,59 @@ if (( ${#NEW[@]} > 0 )); then
     log ""
 fi
 
-if (( ${#UPDATED[@]} == 0 && ${#NEW[@]} == 0 )); then
-    log "Skills up to date."
-else
-    if ! $APPLY; then
-        log "Run with --apply to perform updates."
-        exit 0
-    fi
+# ─── Agent profile detection (must run BEFORE the early exit so agent-only
+# changes aren't silently skipped — #361 isolation finding P1) ───
+UPSTREAM_AGENTS_DIR="$(dirname "$UPSTREAM")/.github/agents"
+LOCAL_AGENTS_DIR="$(resolve_local_agents)"
+AGENTS_UPDATED=0
+AGENTS_NEW=0
 
-    # Apply updates
-    log "Applying updates..."
+if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
+    log ""
+    log "Agent profiles:"
+    log "  Upstream:  $UPSTREAM_AGENTS_DIR"
+    log "  Local:     $LOCAL_AGENTS_DIR"
+    log ""
+
+    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
+        [[ -f "$agent_file" ]] || continue
+        agent_name="$(basename "$agent_file")"
+        local_agent="$LOCAL_AGENTS_DIR/$agent_name"
+
+        if [[ ! -f "$local_agent" ]]; then
+            log "  + agent $agent_name (new)"
+            AGENTS_NEW=$((AGENTS_NEW + 1))
+        else
+            if ! cmp -s "$agent_file" "$local_agent"; then
+                log "  ~ agent $agent_name (updatable)"
+                AGENTS_UPDATED=$((AGENTS_UPDATED + 1))
+            fi
+        fi
+    done
+
+    if (( AGENTS_NEW + AGENTS_UPDATED == 0 )); then
+        log "Agent profiles: up to date."
+    fi
+    log ""
+fi
+
+if (( ${#UPDATED[@]} == 0 && ${#NEW[@]} == 0 && AGENTS_UPDATED == 0 && AGENTS_NEW == 0 )); then
+    log "Everything up to date."
+    $APPLY && ensure_global_pointer
+    exit 0
+fi
+
+# ── --apply dry-run guard: report changes but do NOT apply without --apply (#361 P0) ──
+if ! $APPLY; then
+    log "Dry run complete. Use --apply to apply these changes."
+    if (( AGENTS_UPDATED + AGENTS_NEW > 0 )); then
+        log "Agent profiles: ${AGENTS_NEW} new, ${AGENTS_UPDATED} updatable. Run with --apply to deploy."
+    fi
+    exit 0
+fi
+
+# Apply updates
+log "Applying updates..."
 
     # bash 3.2 (stock macOS): "${ARR[@]}" on an EMPTY array trips `set -u`. Only one of
     # UPDATED/NEW is guaranteed non-empty here, so each apply loop gets its own length guard.
@@ -272,35 +315,21 @@ else
         done
     fi
 
-    if (( ${#NEW[@]} > 0 )); then
-        for name in "${NEW[@]}"; do
-            cp -r "$UPSTREAM/$name" "$LOCAL/$name"
-            # Record baseline hash for new installs
-            if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
-                new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
-                record_baseline "$BASELINE_FILE" "$name" "$new_hash"
-            fi
-            log "  + added $name"
-        done
-    fi
+if (( ${#NEW[@]} > 0 )); then
+    for name in "${NEW[@]}"; do
+        cp -r "$UPSTREAM/$name" "$LOCAL/$name"
+        # Record baseline hash for new installs
+        if [[ -f "$LOCAL/$name/SKILL.md" ]]; then
+            new_hash="$(file_sha256 "$LOCAL/$name/SKILL.md")"
+            record_baseline "$BASELINE_FILE" "$name" "$new_hash"
+        fi
+        log "  + added $name"
+    done
 fi
 
-# --- Agent profile deployment ---
-UPSTREAM_AGENTS_DIR="$(dirname "$UPSTREAM")/.github/agents"
-LOCAL_AGENTS_DIR="$(resolve_local_agents)"
-AGENTS_UPDATED=0
-AGENTS_NEW=0
-
-if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
-    log ""
-    log "Agent profiles:"
-    log "  Upstream:  $UPSTREAM_AGENTS_DIR"
-    log "  Local:     $LOCAL_AGENTS_DIR"
-    log ""
-
-    if $APPLY; then
-        mkdir -p "$LOCAL_AGENTS_DIR"
-    fi
+# --- Agent profile deployment (apply phase) ---
+if (( AGENTS_UPDATED + AGENTS_NEW > 0 )) && [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
+    mkdir -p "$LOCAL_AGENTS_DIR"
 
     for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
         [[ -f "$agent_file" ]] || continue
@@ -308,30 +337,15 @@ if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
         local_agent="$LOCAL_AGENTS_DIR/$agent_name"
 
         if [[ ! -f "$local_agent" ]]; then
-            if $APPLY; then
-                cp "$agent_file" "$local_agent"
-                log "  + agent $agent_name"
-            fi
-            AGENTS_NEW=$((AGENTS_NEW + 1))
+            cp "$agent_file" "$local_agent"
+            log "  + agent $agent_name"
         else
-            # Check if upstream differs from local
             if ! cmp -s "$agent_file" "$local_agent"; then
-                if $APPLY; then
-                    cp "$agent_file" "$local_agent"
-                    log "  ~ agent $agent_name"
-                fi
-                AGENTS_UPDATED=$((AGENTS_UPDATED + 1))
+                cp "$agent_file" "$local_agent"
+                log "  ~ agent $agent_name"
             fi
         fi
     done
-
-    if ! $APPLY; then
-        if (( AGENTS_NEW + AGENTS_UPDATED > 0 )); then
-            log "Agent profiles: ${AGENTS_NEW} new, ${AGENTS_UPDATED} updatable. Run with --apply to deploy."
-        else
-            log "Agent profiles: up to date."
-        fi
-    fi
 fi
 
 log ""
