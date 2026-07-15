@@ -167,6 +167,8 @@ In addition to the overwritable state file, maintain an **append-only** acquitta
 
 ### Loop (repeat up to MAX_ROUNDS)
 
+**Step 0 — Initialize `round_backend`:** At the start of each round, before Phase A, snapshot the current `REVIEWER_BACKEND` value: `round_backend = <current REVIEWER_BACKEND>`. This variable labels which backend actually ran the CURRENT round. If escalation occurs later in Phase B.5.1 (copilot → codex/manual), `round_backend` retains the pre-escalation value (the backend that ran), while `REVIEWER_BACKEND` in state is updated for the NEXT round. Phase E references `round_backend` for documentation and the acquittal gate.
+
 #### Phase A: Review
 
 **Route by REVIEWER_BACKEND and REVIEWER_DIFFICULTY.**
@@ -374,10 +376,10 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 
     **Escalation backend selection (cross-family check):** Determine the escalation backend by comparing `executor_family` (derived from `--executor-model` in Phase A):
     - `executor_family = anthropic` or `google` → escalate to `codex` (codex uses GPT models = openai family, guaranteed cross-family from non-openai executors).
-    - `executor_family = openai` → escalate to `manual` instead of `codex` (codex is same-family, defeating the cross-family acquittal guarantee). If manual is unavailable, escalate to `codex` as a fallback but document that the cross-family invariant is degraded.
+    - `executor_family = openai` → escalate to `manual` instead of `codex` (codex is same-family, defeating the cross-family acquittal guarantee). Manual is the terminal escalation — no codex fallback (which would reopen the same-family acquittal gap). If manual is unavailable, emit `REVIEW_UNAVAILABLE`.
     - `executor_family = unknown` → `REVIEW_UNAVAILABLE` (fail closed — cannot guarantee cross-family acquittal).
 
-    **State snapshot before escalation:** BEFORE updating `reviewer_backend` in `REVIEW_STATE.json`, snapshot the current backend value as a variable (not written to state): `round_backend = "copilot"`. Phase E uses this snapshotted value to label which backend ran the CURRENT round. After snapshotting, update `reviewer_backend` in `REVIEW_STATE.json` to the selected escalation backend for the next round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
+    **State snapshot before escalation:** `round_backend` was already snapshotted at round start (step 0) and equals `"copilot"`. Update `reviewer_backend` in `REVIEW_STATE.json` to the selected escalation backend for the next round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. Phase E uses `round_backend` (still `"copilot"`) to label which backend ran the CURRENT round. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
 
 **Why `ACQUITTAL_LOG.jsonl` instead of `REVIEW_STATE.json`:** `REVIEW_STATE.json` is overwritten every round (only the latest state matters per the state contract). A prior run's completed state with a codex/manual positive verdict is obliterated when the current run's first round is written. The append-only `ACQUITTAL_LOG.jsonl` is never overwritten — but each entry carries a `run_id`, and only entries whose `run_id` matches the current invocation count. A stale acquittal from a prior run (different `run_id`) is an audit artifact, not a valid stop signal for the current run.
 
@@ -606,11 +608,11 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 **Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, threadId, score, verdict, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
 
 **Backend labeling for the state file:** The `reviewer_backend` field in `REVIEW_STATE.json` controls the continuation mechanism for the NEXT round (used on resume), not the round just documented. During Phase E:
-- Use `round_backend` (snapshotted in Phase B.5.1 before any escalation update) to label the CURRENT round in `AUTO_REVIEW.md` documentation (e.g., "Reviewer backend: copilot").
+- Use `round_backend` (snapshotted at round start, step 0) to label the CURRENT round in `AUTO_REVIEW.md` documentation (e.g., "Reviewer backend: copilot").
 - Write `reviewer_backend` in `REVIEW_STATE.json` to the value that should control the NEXT round — this is either (a) unchanged from the current round's backend if no escalation occurred, or (b) the escalation backend set during Phase B.5.1. Never write `round_backend` itself to the state file; the state file's `reviewer_backend` is always forward-looking.
 - When no escalation happened, `round_backend == reviewer_backend` (trivially safe).
 
-**If `REVIEWER_BACKEND ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
+**If `round_backend ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
 ```
 {"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
 ```
