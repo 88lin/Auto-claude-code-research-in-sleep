@@ -382,8 +382,15 @@ If no `--reviewer:` specified:
 For the copilot reviewer, use the documented `copilot --agent` subprocess form with custom agent profiles:
 
 ```bash
-copilot --agent "aris-reviewer-openai" --prompt "[Same review prompt as Codex MCP — role, task, output schema, file paths]
-Read the listed files directly."
+# Write assembled prompt to a temp file to avoid shell injection
+# from untrusted prompt content (quotes, backticks, $() re-interpretation)
+PROMPTFILE=$(mktemp)
+trap 'rm -f "$PROMPTFILE"' EXIT
+cat > "$PROMPTFILE" <<'PROMPT_EOF'
+[Same review prompt as Codex MCP — role, task, output schema, file paths]
+Read the listed files directly.
+PROMPT_EOF
+copilot --agent "aris-reviewer-openai" --prompt "$(cat "$PROMPTFILE")"
 ```
 
 The profile name is the router-selected opposite-family profile (`aris-reviewer-openai` or `aris-reviewer-claude`).
@@ -403,7 +410,12 @@ The profile name is the router-selected opposite-family profile (`aris-reviewer-
 **Pattern for round 2+:**
 
 ```bash
-copilot --agent "<same profile as round 1>" --prompt "[Round N/MAX_ROUNDS]
+# Write assembled prompt to a temp file to avoid shell injection
+# from untrusted REVIEWER_MEMORY.md content (quotes, backticks, $() re-interpretation)
+PROMPTFILE=$(mktemp)
+trap 'rm -f "$PROMPTFILE"' EXIT
+cat > "$PROMPTFILE" <<'PROMPT_EOF'
+[Round N/MAX_ROUNDS]
 
 ## Your Memory From Previous Rounds
 [Paste full contents of REVIEWER_MEMORY.md]
@@ -418,7 +430,9 @@ Please re-score and re-assess. Are the remaining concerns addressed?
 Same format: Score, Verdict, Remaining Weaknesses, Minimum Fixes.
 
 At the end of your review, write (or append to) the Memory Update section
-in your response — this will be passed back to you next round."
+in your response — this will be passed back to you next round.
+PROMPT_EOF
+copilot --agent "<same profile as round 1>" --prompt "$(cat "$PROMPTFILE")"
 ```
 
 **IMPORTANT:** This is architecturally different from `SendMessage` (which would require a persistent subagent handle that `copilot --agent` does not provide). The memory-artifact pattern is the documented alternative for stateful multi-round workflows in Copilot CLI.

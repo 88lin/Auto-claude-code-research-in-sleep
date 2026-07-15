@@ -370,7 +370,14 @@ After parsing the assessment, append to `REVIEWER_MEMORY.md` in the project root
 **STOP CONDITION — branch by REVIEWER_BACKEND:**
 
 - **If REVIEWER_BACKEND ∈ {codex, manual}:** If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → stop loop, document final state. (The acquittal line is recorded in Phase E — this gate decides, Phase E documents. Do NOT write the acquittal line here.)
-- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict **in this same run**. To check: scan `review-stage/ACQUITTAL_LOG.jsonl` for a line whose `run_id` matches the **current** `run_id` AND `backend` ∈ {codex, manual} AND `effort` (case-insensitive) equals `"xhigh"` AND `verdict` ∈ {"ready", "almost"} AND `score` >= 6 AND `trace_id` is non-empty AND the trace directory `.aris/traces/<trace_id>/` exists on disk. If such an acquittal exists: stop. If no same-run acquittal exists AND copilot returned a positive verdict (score >= 6, verdict ∈ {"ready", "almost"}): the loop MUST escalate — schedule the next round to use `codex` backend (or `manual` if codex is unavailable) for a mandatory cross-family acquittal review. Update `reviewer_backend` in `REVIEW_STATE.json` to `codex` (or `manual`) for the escalation round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
+- **If REVIEWER_BACKEND = copilot:** Copilot is drive-only (effort-unpinned, per Key Rules). Do NOT stop on a copilot-issued positive verdict unless a `codex` or `manual` backend at `xhigh`+ effort has already issued an acquitting positive verdict **in this same run**. To check: scan `review-stage/ACQUITTAL_LOG.jsonl` for a line whose `run_id` matches the **current** `run_id` AND `backend` ∈ {codex, manual} AND `effort` (case-insensitive) equals `"xhigh"` AND `verdict` ∈ {"ready", "almost"} AND `score` >= 6 AND `trace_id` is non-empty AND the trace directory `.aris/traces/<trace_id>/` exists on disk. If such an acquittal exists: stop. If no same-run acquittal exists AND copilot returned a positive verdict (score >= 6, verdict ∈ {"ready", "almost"}): the loop MUST escalate — schedule the next round to use a cross-family backend for a mandatory acquittal review.
+
+    **Escalation backend selection (cross-family check):** Determine the escalation backend by comparing `executor_family` (derived from `--executor-model` in Phase A):
+    - `executor_family = anthropic` or `google` → escalate to `codex` (codex uses GPT models = openai family, guaranteed cross-family from non-openai executors).
+    - `executor_family = openai` → escalate to `manual` instead of `codex` (codex is same-family, defeating the cross-family acquittal guarantee). If manual is unavailable, escalate to `codex` as a fallback but document that the cross-family invariant is degraded.
+    - `executor_family = unknown` → `REVIEW_UNAVAILABLE` (fail closed — cannot guarantee cross-family acquittal).
+
+    **State snapshot before escalation:** BEFORE updating `reviewer_backend` in `REVIEW_STATE.json`, snapshot the current backend value as a variable (not written to state): `round_backend = "copilot"`. Phase E uses this snapshotted value to label which backend ran the CURRENT round. After snapshotting, update `reviewer_backend` in `REVIEW_STATE.json` to the selected escalation backend for the next round, and note in `AUTO_REVIEW.md` that the copilot drive triggered a mandatory cross-family acquittal. If copilot returned a negative verdict: continue to next round with copilot backend as usual. Copilot NEVER writes an acquittal line itself.
 
 **Why `ACQUITTAL_LOG.jsonl` instead of `REVIEW_STATE.json`:** `REVIEW_STATE.json` is overwritten every round (only the latest state matters per the state contract). A prior run's completed state with a codex/manual positive verdict is obliterated when the current run's first round is written. The append-only `ACQUITTAL_LOG.jsonl` is never overwritten — but each entry carries a `run_id`, and only entries whose `run_id` matches the current invocation count. A stale acquittal from a prior run (different `run_id`) is an audit artifact, not a valid stop signal for the current run.
 
@@ -407,7 +414,13 @@ Send the executor's rebuttal back to the reviewer for a ruling:
 
 *For copilot:* fresh `copilot --agent` subprocess with the same profile + REVIEWER_MEMORY.md context:
 ```bash
-copilot --agent "<saved-reviewer-profile>" --prompt "[Rebutal ruling — same reviewer]
+# Write assembled prompt to a temp file to avoid shell injection
+# from untrusted REVIEWER_MEMORY.md content (which may contain quotes,
+# backticks, or $() that would be re-interpreted in a double-quoted arg)
+PROMPTFILE=$(mktemp) || PROMPTFILE="/tmp/reviewer_prompt_$$.txt"
+trap 'rm -f "$PROMPTFILE"' EXIT
+cat > "$PROMPTFILE" <<'PROMPT_EOF'
+[Rebutal ruling — same reviewer]
 
 ## Your Memory From Previous Rounds
 [Paste full contents of REVIEWER_MEMORY.md]
@@ -422,7 +435,9 @@ For each rebuttal, rule:
 - PARTIALLY SUSTAINED (revise the weakness to a narrower scope)
 
 Then update your score if any weaknesses were withdrawn.
-Include a Memory Update section at the end of your response."
+Include a Memory Update section at the end of your response.
+PROMPT_EOF
+copilot --agent "<saved-reviewer-profile>" --prompt "$(cat "$PROMPTFILE")"
 ```
 
 *For codex:*
@@ -590,6 +605,11 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 
 **Write `review-stage/REVIEW_STATE.json`** with current `run_id`, round, threadId, score, verdict, and any pending experiments. The `run_id` field MUST persist unchanged from initialization; do NOT regenerate it per round.
 
+**Backend labeling for the state file:** The `reviewer_backend` field in `REVIEW_STATE.json` controls the continuation mechanism for the NEXT round (used on resume), not the round just documented. During Phase E:
+- Use `round_backend` (snapshotted in Phase B.5.1 before any escalation update) to label the CURRENT round in `AUTO_REVIEW.md` documentation (e.g., "Reviewer backend: copilot").
+- Write `reviewer_backend` in `REVIEW_STATE.json` to the value that should control the NEXT round — this is either (a) unchanged from the current round's backend if no escalation occurred, or (b) the escalation backend set during Phase B.5.1. Never write `round_backend` itself to the state file; the state file's `reviewer_backend` is always forward-looking.
+- When no escalation happened, `round_backend == reviewer_backend` (trivially safe).
+
 **If `REVIEWER_BACKEND ∈ {codex, manual}` AND score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
 ```
 {"run_id":"<current-run_id>","round":<N>,"backend":"<codex|manual>","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
@@ -645,7 +665,15 @@ When loop ends (positive assessment or max rounds):
 Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
 
 ```
-[For copilot:] copilot --agent "<saved-reviewer-profile>" --prompt "[Round N update]
+[For copilot:]
+
+# Write assembled prompt to a temp file to avoid shell injection
+# from untrusted REVIEWER_MEMORY.md content (which may contain quotes,
+# backticks, or $() that would be re-interpreted in a double-quoted arg)
+PROMPTFILE=$(mktemp) || PROMPTFILE="/tmp/reviewer_prompt_$$.txt"
+trap 'rm -f "$PROMPTFILE"' EXIT
+cat > "$PROMPTFILE" <<'PROMPT_EOF'
+[Round N update]
 
 ## Your Memory From Previous Rounds
 [Paste full contents of REVIEWER_MEMORY.md]
@@ -660,7 +688,9 @@ Please re-score and re-assess. Are the remaining concerns addressed?
 Same format: Score, Verdict, Remaining Weaknesses, Minimum Fixes.
 
 At the end of your review, include a Memory Update section — this will
-be passed back to you next round."
+be passed back to you next round.
+PROMPT_EOF
+copilot --agent "<saved-reviewer-profile>" --prompt "$(cat "$PROMPTFILE")"
 
 [For codex:] mcp__codex__codex-reply:
   threadId: [saved from round 1]
