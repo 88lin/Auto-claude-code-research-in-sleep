@@ -784,14 +784,14 @@ def test_install_copilot_uninstall_cleans_agents(tmp_path: Path) -> None:
 # --- Routing fail-closed tests ---
 
 def test_routing_fail_closed_missing_executor_model(tmp_path: Path) -> None:
-    """Routing requires --executor-model for copilot; missing = REVIEW_UNAVAILABLE."""
+    """Explicit compatibility drive mode still requires its declared executor model."""
     # Verify the auto-review-loop SKILL.md contains the fail-closed language
     skill_path = REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md"
     skill_text = skill_path.read_text()
 
     assert "REVIEW_UNAVAILABLE" in skill_text
     assert "--executor-model" in skill_text
-    # Fail-closed: missing executor-model blocks copilot usage
+    # Fail-closed: missing executor-model blocks only explicit compatibility mode.
     assert "missing" in skill_text.lower() or "REVIEW_UNAVAILABLE" in skill_text
 
 
@@ -901,6 +901,8 @@ def test_stop_gate_uses_snapshotted_state_and_executable_transition_table() -> N
     assert "tools/review_gate.py" in skill_text
     assert 'GATE_JSON=$(python3 "$REVIEW_GATE" "${GATE_ARGS[@]}")' in skill_text
     assert '--executor-model "${EXECUTOR_MODEL:-}"' in skill_text
+    assert 'GATE_ARGS+=(--native-evidence "$NATIVE_EVIDENCE")' in skill_text
+    assert "host_event_verified" in skill_text
     assert "both finalizers default to unavailable" in skill_text
     assert "Default Codex compatibility" in skill_text
     assert "do not turn a valid default-Codex positive verdict into `REVIEW_UNAVAILABLE`" in skill_text
@@ -953,7 +955,7 @@ def test_modern_review_state_has_backend_field(tmp_path: Path) -> None:
 # --- Trace backward-compat tests ---
 
 def test_save_trace_supports_new_fields(tmp_path: Path) -> None:
-    """save_trace.sh accepts --executor, --requested-reviewer-model, --reported-reviewer-model, --memory-hash."""
+    """save_trace.sh accepts legacy provenance plus native evidence."""
     trace_script = REPO_ROOT / "tools" / "save_trace.sh"
     assert trace_script.exists()
 
@@ -963,6 +965,7 @@ def test_save_trace_supports_new_fields(tmp_path: Path) -> None:
     assert "--requested-reviewer-model)" in script_text
     assert "--reported-reviewer-model)" in script_text
     assert "--memory-hash)" in script_text
+    assert "--native-evidence)" in script_text
 
 
 def test_save_trace_executor_field_not_hardcoded(tmp_path: Path) -> None:
@@ -1127,23 +1130,24 @@ def test_save_trace_backend_reported_model_takes_precedence(tmp_path: Path) -> N
         assert artifact["independence_verified"] == "unverified"
 
 
-def test_review_tracing_doc_copilot_model_is_gpt5_4(tmp_path: Path) -> None:
-    """review-tracing.md copilot example uses gpt-5.4, not gpt-5.6-sol."""
+def test_review_tracing_doc_separates_native_from_compatibility_model(tmp_path: Path) -> None:
+    """Native records the resolved model; only compatibility mode pins GPT-5.4."""
     doc_path = REPO_ROOT / "skills" / "shared-references" / "review-tracing.md"
     doc_text = doc_path.read_text()
 
-    # The copilot example section should reference gpt-5.4
-    # Find the copilot example block
-    copilot_start = doc_text.find('For copilot backend')
-    if copilot_start >= 0:
-        copilot_section = doc_text[copilot_start:copilot_start + 2000]
-        # Within the copilot example, model should be gpt-5.4
-        assert '"model": "gpt-5.4"' in copilot_section, \
-            "copilot example must use gpt-5.4, not gpt-5.6-sol"
+    native_start = doc_text.find("For native Copilot backend")
+    compatibility_start = doc_text.find("For compatibility copilot backend")
+    assert native_start >= 0
+    assert compatibility_start > native_start
+    native_section = doc_text[native_start:compatibility_start]
+    compatibility_section = doc_text[compatibility_start:compatibility_start + 1800]
+    assert '"backend": "copilot-native"' in native_section
+    assert '"model": "gpt-5.4"' not in native_section
+    assert '"model": "gpt-5.4"' in compatibility_section
 
 
 def test_reviewer_routing_copilot_scope_consistent(tmp_path: Path) -> None:
-    """reviewer-routing.md top table and copilot section agree on scope."""
+    """The no-flag Copilot route is native while compatibility drive stays explicit."""
     doc_path = REPO_ROOT / "skills" / "shared-references" / "reviewer-routing.md"
     doc_text = doc_path.read_text()
 
@@ -1158,12 +1162,37 @@ def test_reviewer_routing_copilot_scope_consistent(tmp_path: Path) -> None:
                 f"All other reviewer skills should not list copilot as override. Found:\n{nearby}"
             break
 
-    # Copilot section says scope is /auto-review-loop only
+    # Copilot sections say scope is /auto-review-loop only.
     copilot_section_idx = doc_text.find("Copilot CLI Custom Agent Profiles")
     assert copilot_section_idx >= 0
     copilot_section = doc_text[copilot_section_idx:copilot_section_idx + 800]
     assert "auto-review-loop" in copilot_section
     assert "only" in copilot_section.lower()
-    assert "drive-only partial implementation" in doc_text
-    assert "not the issue's requested automatic/default or end-to-end MCP-free acceptance path" in doc_text
-    assert "positive Copilot verdict must be finalized by Codex/manual" in doc_text
+    assert "Copilot CLI Native Rubber Duck" in doc_text
+    assert "copilot-native" in doc_text
+    assert "two separate root" in doc_text
+    assert "agent_type: rubber-duck" in doc_text
+    assert "no Codex or" in doc_text and "manual finalizer" in doc_text
+    assert "drive-only partial implementation" not in doc_text
+    assert "not the issue's requested automatic/default" not in doc_text
+
+
+def test_native_copilot_default_is_evidence_gated_end_to_end() -> None:
+    skill_text = (REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md").read_text()
+    trace_text = (REPO_ROOT / "skills" / "shared-references" / "review-tracing.md").read_text()
+    contract_text = (REPO_ROOT / "skills" / "shared-references" / "integration-contract.md").read_text()
+
+    assert "copilot-native" in skill_text
+    assert "copilot_native_evidence.py" in skill_text
+    assert "agent_type: rubber-duck" in skill_text
+    assert 'GATE_ARGS+=(--native-evidence "$NATIVE_EVIDENCE")' in skill_text
+    assert "no external finalizer is needed" in skill_text
+    assert "Step -1 — Resolve the automatic backend" in skill_text
+    assert "Do not issue a second marker/challenge here" in skill_text
+    assert "COPILOT_NATIVE_<run_id>_ROUND_<round>_REVIEW" in skill_text
+    assert "--replace" in skill_text and "never pass" in skill_text
+    assert "validate-challenge --challenge" in skill_text
+    assert "round_requires_external_acquittal=true" in skill_text
+    assert "--backend copilot-native" in trace_text
+    assert "host-session-event" in trace_text
+    assert "`copilot_native_evidence.py` | A (gate)" in contract_text

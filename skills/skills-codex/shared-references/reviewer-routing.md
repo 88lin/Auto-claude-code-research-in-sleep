@@ -103,11 +103,19 @@ If reviewer=oracle-pro:
   artifact changes. See `external-cadence.md`.
 - Browser-based Oracle review is acceptable for one-shot stress tests, not ideal for tight multi-round loops.
 
-## Copilot CLI Custom Agent Profiles (`--reviewer: copilot`) — auto-review-loop only
+## Copilot CLI reviewer behavior in the main skill set
 
-The main `skills/shared-references/reviewer-routing.md` includes a Copilot reviewer path scoped to `/auto-review-loop` only. It uses the documented **`copilot --agent`** subprocess with custom agent profiles (`aris-reviewer-openai` / `aris-reviewer-claude`), repeats the parsed profile model through outer `--model`, pins `--effort xhigh`, and grants only `--allow-tool=read`. It picks an opposite-family profile from the caller-declared `--executor-model`, failing closed for same/unknown family, while recording that executor identity as unverified rather than attested. Copilot is an **explicit opt-in, drive-only** backend; a positive drive verdict still requires a Codex/manual finalizer.
+The main `skills/shared-references/reviewer-routing.md` defaults
+`/auto-review-loop` to Copilot CLI's native complementary `rubber-duck`
+subagent when a host-session marker binds. Its stop gate requires revalidated
+native lifecycle/model/response evidence and a known cross-family pair. The
+older `--reviewer: copilot` custom-agent subprocess remains an explicit
+compatibility drive mode and still needs a Codex/manual finalizer.
 
-**This routing applies to the main skills at `skills/`, not this Codex-mirror pack.** If you are reading this file from `skills/skills-codex/`, you are in the Codex CLI mirror where `spawn_agent` is the native reviewer. For Copilot CLI custom agent profile review, use the main skill set at `skills/` — see the main [`skills/shared-references/reviewer-routing.md`](../../../skills/shared-references/reviewer-routing.md#copilot-cli-custom-agent-profiles---reviewer-copilot--explicit-opt-in-for-auto-review-loop) for the full copilot contract.
+**This routing applies to the main skills at `skills/`, not this Codex-mirror
+pack.** Here `spawn_agent` remains the native reviewer. See the main
+[`reviewer-routing.md`](../../../skills/shared-references/reviewer-routing.md#copilot-cli-native-rubber-duck-default-for-auto-review-loop)
+for the Copilot contract.
 
 ## Skills That Commonly Benefit From `oracle-pro`
 
