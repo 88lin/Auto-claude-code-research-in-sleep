@@ -1,6 +1,5 @@
 ---
 model: claude-sonnet-4.5
-model_family: anthropic
 description: ARIS reviewer agent using Anthropic Claude Sonnet 4.5 for cross-family review
 tools: read
 ---

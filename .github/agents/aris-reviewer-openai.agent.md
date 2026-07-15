@@ -1,6 +1,5 @@
 ---
 model: gpt-5.4
-model_family: openai
 description: ARIS reviewer agent using OpenAI GPT-5.4 for cross-family review
 tools: read
 ---

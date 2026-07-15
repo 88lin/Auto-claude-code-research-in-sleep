@@ -60,13 +60,13 @@ if [ -n "$TRACE_HELPER" ]; then
     --tool "<mcp__codex__codex | copilot --agent | mcp__manual_review__review | ...>" \
     --executor "<claude-code | copilot | codex>" \
     --executor-model "<from --executor-model; unavailable if not set>" \
-    --executor-family "<openai | anthropic | google | unknown>" \
+    --executor-family "<legacy consistency hint; helper re-derives from executor-model>" \
     --reviewer-profile "<profile name for copilot backend; empty for others>" \
-    --reviewer-family "<openai | anthropic | google | unknown>" \
+    --reviewer-family "<legacy consistency hint; helper re-derives from reviewer model>" \
     --requested-reviewer-model "<model originally requested>" \
     --reported-reviewer-model "<model the backend reports it used>" \
     --memory-hash "<sha256 of memory artifact if available; empty otherwise>" \
-    --independence-verified "<true | false>" \
+    --independence-verified "<legacy consistency hint; helper ignores and re-derives>" \
     --prompt "<full prompt as sent>" \
     --response "<full response content>"
 else
@@ -87,10 +87,14 @@ else
 fi
 ```
 
-The helper, when present, handles directory creation, run numbering,
-and file writing. The fallback branch above documents what to do
+The helper, when present, handles directory creation, run numbering, file
+writing, and provenance derivation. It derives families from model strings
+(`reported_reviewer_model`, otherwise `requested_reviewer_model`, otherwise
+`model`) and ignores contradictory caller family/independence claims. The fallback branch above documents what to do
 when the helper is unreachable — the trace is forensic evidence, so
-"helper missing" never means "skip the trace."
+"helper missing" never means "skip the trace." A direct fallback writer MUST
+apply the same model-string derivation and mark either unknown family as
+`independence_verified: "unverified"`; it may not copy caller family labels.
 
 ## File Schemas
 
@@ -140,8 +144,8 @@ For copilot backend (`--reviewer: copilot`):
   "tool": "copilot --agent",
   "backend": "copilot",
   "model": "gpt-5.4",
-  "effort_unpinned": true,
-  "config": {},
+  "effort": "xhigh",
+  "effort_unpinned": false,
   "reviewer_profile": "aris-reviewer-openai",
   "requested_reviewer_model": "gpt-5.4",
   "reported_reviewer_model": null,
@@ -157,13 +161,13 @@ For copilot backend (`--reviewer: copilot`):
 Fields:
 - `tool`: the tool name used (`mcp__codex__codex`, `copilot --agent`, `mcp__manual_review__review`, etc.).
 - `backend`: the logical backend (`codex`, `copilot`, `manual`, `oracle-pro`, `agy`).
-- `effort_unpinned`: `true` when the backend cannot pin reasoning effort (copilot profiles have no effort control); `false` otherwise.
+- `effort_unpinned`: for Copilot, `false` only when the actual subprocess was explicitly invoked with `--effort xhigh`; older/unpinned Copilot calls remain `true` and cannot meet the review floor.
 - `reviewer_profile`: for copilot, the custom agent profile name (e.g., `aris-reviewer-openai`); `null` for other backends.
-- `requested_reviewer_model`: the model pinned in the selected profile frontmatter (parsed from `.github/agents/<profile>.agent.md`); `null` when unavailable.
+- `requested_reviewer_model`: the model parsed from profile frontmatter and repeated through subprocess `--model`; `null` when unavailable.
 - `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this information.
 - `executor_model`: from `--executor-model` parameter; `"unavailable"` if not provided.
 - `executor_family`: derived from `executor_model`.
-- `reviewer_family`: the reviewer's model family (`openai` / `anthropic` / `google` / `unknown`).
+- `reviewer_family`: derived by the helper from the reported/requested/actual reviewer model, never trusted from the caller.
 - `independence_verified`: derived from actual executor and reviewer model families — `true` when `executor_family != reviewer_family` and both are known; `false` otherwise; `"unverified"` when families are not both available to derive.
 
 ### `NNN-<purpose>.response.md`
@@ -195,7 +199,8 @@ For copilot backend:
   "thread_id": null,
   "model": "gpt-5.4",
   "model_family": "openai",
-  "effort_unpinned": true,
+  "effort": "xhigh",
+  "effort_unpinned": false,
   "executor_family": "anthropic",
   "requested_reviewer_model": "gpt-5.4",
   "reported_reviewer_model": null,
@@ -208,9 +213,9 @@ For copilot backend:
 
 Fields new per this fix:
 - `model_family`: `openai` / `anthropic` / `google` / `unknown` — derived from the model that actually ran.
-- `effort_unpinned`: `true` when the backend cannot pin reasoning effort (copilot backend); `false` otherwise.
+- `effort_unpinned`: whether a Copilot call lacked the required explicit `xhigh` pin; qualifying current Copilot calls record `false`.
 - `executor_family`: from `--executor-model` derivation (copilot) or executor introspection (other backends); `"unavailable"` if not known.
-- `requested_reviewer_model`: the model pinned in the selected profile frontmatter; `null` when not available.
+- `requested_reviewer_model`: the profile model also passed through subprocess `--model`; `null` when not available.
 - `reported_reviewer_model`: the model the tool reports actually using; `null` when the tool does not surface this.
 - `independence_verified`: derived from actual executor and reviewer families — `true` only when they differ and both are known; `false` if same-family; `"unverified"` if families cannot be resolved.
 - `reviewer_profile`: for copilot backend only, the custom agent profile name; `null` for other backends.

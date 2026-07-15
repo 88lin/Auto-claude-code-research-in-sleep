@@ -90,7 +90,7 @@ resolve_local() {
 # Resolve the agents directory corresponding to the local skills directory.
 resolve_local_agents() {
     if $HAS_CUSTOM_LOCAL; then
-        echo "$CUSTOM_LOCAL/../agents"
+        echo "$(dirname "$CUSTOM_LOCAL")/agents"
     elif [[ "$MODE" == "project" ]]; then
         local p
         p="$(cd "$PROJECT_PATH" 2>/dev/null && pwd)" || die "project path not found: $PROJECT_PATH"
@@ -98,6 +98,50 @@ resolve_local_agents() {
     else
         echo "$HOME/.copilot/agents"
     fi
+}
+
+# Refuse any existing symlink in a destination path.  A direct file check is
+# not enough: `.github/agents` (or one of its parents) could itself redirect
+# writes outside the selected project.
+refuse_symlink_components() {
+    local probe="$1" stop="$2" parent
+    while :; do
+        [[ ! -L "$probe" ]] || die "refusing symlinked agent destination path: $probe"
+        [[ "$probe" != "$stop" ]] || break
+        parent="$(dirname "$probe")"
+        [[ "$parent" != "$probe" ]] || die "agent destination escapes safety root: $1"
+        probe="$parent"
+    done
+}
+
+# Resolve an existing source path portably (GNU/Linux, macOS, then Python).
+canonicalize() {
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$1"
+    elif readlink -f "$1" >/dev/null 2>&1; then
+        readlink -f "$1"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
+    else
+        return 1
+    fi
+}
+
+# Copy through a same-directory temporary file and rename it into place.  The
+# rename replaces a concurrently-created symlink instead of following it.
+copy_agent_atomically() {
+    local source="$1" target="$2" target_dir tmp
+    [[ ! -L "$target" ]] || die "refusing symlinked agent destination: $target"
+    target_dir="$(dirname "$target")"
+    refuse_symlink_components "$target_dir" "$LOCAL_AGENTS_ROOT"
+    tmp="$(mktemp "$target_dir/.aris-agent.XXXXXX")" || die "cannot create temporary agent file in $target_dir"
+    if ! cp "$source" "$tmp"; then
+        rm -f "$tmp"
+        die "cannot copy agent profile: $source"
+    fi
+    chmod 0644 "$tmp"
+    [[ ! -L "$target" ]] || { rm -f "$tmp"; die "agent destination became a symlink: $target"; }
+    mv -f "$tmp" "$target"
 }
 
 # Compute SHA-256 of a file (portable across GNU/BSD)
@@ -258,25 +302,30 @@ fi
 # changes aren't silently skipped — #361 isolation finding P1) ───
 UPSTREAM_AGENTS_DIR="$(dirname "$UPSTREAM")/.github/agents"
 LOCAL_AGENTS_DIR="$(resolve_local_agents)"
+LOCAL_AGENTS_ROOT="$(dirname "$LOCAL_AGENTS_DIR")"
+refuse_symlink_components "$LOCAL_AGENTS_DIR" "$LOCAL_AGENTS_ROOT"
 AGENTS_UPDATED=0
 AGENTS_NEW=0
 AGENTS_CUSTOMIZED=0
 
 if [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
+    [[ ! -L "$UPSTREAM_AGENTS_DIR" ]] || die "refusing symlinked upstream agents directory: $UPSTREAM_AGENTS_DIR"
     log ""
     log "Agent profiles:"
     log "  Upstream:  $UPSTREAM_AGENTS_DIR"
     log "  Local:     $LOCAL_AGENTS_DIR"
     log ""
 
-    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
+    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.agent.md; do
         [[ -f "$agent_file" ]] || continue
         # Resolve symlink and verify it's within the expected directory
-        resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
-        upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
+        resolved="$(canonicalize "$agent_file")" || die "cannot canonicalize agent profile: $agent_file"
+        upstream_canon="$(canonicalize "$UPSTREAM_AGENTS_DIR")" || die "cannot canonicalize upstream agents directory: $UPSTREAM_AGENTS_DIR"
         [[ "$resolved" == "$upstream_canon"/* ]] || { warn "skipping external symlink: $agent_file -> $resolved"; continue; }
         agent_name="$(basename "$agent_file")"
         local_agent="$LOCAL_AGENTS_DIR/$agent_name"
+
+        [[ ! -L "$local_agent" ]] || die "refusing symlinked agent destination: $local_agent"
 
         if [[ ! -f "$local_agent" ]]; then
             log "  + agent $agent_name (new)"
@@ -372,19 +421,23 @@ fi
 
 # --- Agent profile deployment (apply phase) ---
 if { (( AGENTS_UPDATED + AGENTS_NEW > 0 )) || ( $FORCE_AGENTS && (( AGENTS_CUSTOMIZED > 0 )) ); } && [[ -d "$UPSTREAM_AGENTS_DIR" ]]; then
+    refuse_symlink_components "$LOCAL_AGENTS_DIR" "$LOCAL_AGENTS_ROOT"
     mkdir -p "$LOCAL_AGENTS_DIR"
+    refuse_symlink_components "$LOCAL_AGENTS_DIR" "$LOCAL_AGENTS_ROOT"
 
-    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.md; do
+    for agent_file in "$UPSTREAM_AGENTS_DIR"/*.agent.md; do
         [[ -f "$agent_file" ]] || continue
         # Resolve symlink and verify it's within the expected directory
-        resolved="$(readlink -f "$agent_file" 2>/dev/null || realpath "$agent_file" 2>/dev/null)"
-        upstream_canon="$(readlink -f "$UPSTREAM_AGENTS_DIR" 2>/dev/null || realpath "$UPSTREAM_AGENTS_DIR" 2>/dev/null)"
+        resolved="$(canonicalize "$agent_file")" || die "cannot canonicalize agent profile: $agent_file"
+        upstream_canon="$(canonicalize "$UPSTREAM_AGENTS_DIR")" || die "cannot canonicalize upstream agents directory: $UPSTREAM_AGENTS_DIR"
         [[ "$resolved" == "$upstream_canon"/* ]] || { warn "skipping external symlink: $agent_file -> $resolved"; continue; }
         agent_name="$(basename "$agent_file")"
         local_agent="$LOCAL_AGENTS_DIR/$agent_name"
 
+        [[ ! -L "$local_agent" ]] || die "refusing symlinked agent destination: $local_agent"
+
         if [[ ! -f "$local_agent" ]]; then
-            cp "$agent_file" "$local_agent"
+            copy_agent_atomically "$agent_file" "$local_agent"
             # Record baseline hash for new agent install
             agent_hash="$(file_sha256 "$local_agent")"
             record_baseline "$AGENT_BASELINE_FILE" "$agent_name" "$agent_hash"
@@ -409,7 +462,7 @@ if { (( AGENTS_UPDATED + AGENTS_NEW > 0 )) || ( $FORCE_AGENTS && (( AGENTS_CUSTO
 
                 if $agent_custom; then
                     if $FORCE_AGENTS; then
-                        cp "$agent_file" "$local_agent"
+                        copy_agent_atomically "$agent_file" "$local_agent"
                         agent_hash="$(file_sha256 "$local_agent")"
                         record_baseline "$AGENT_BASELINE_FILE" "$agent_name" "$agent_hash"
                         log "  ~ agent $agent_name (force-updated, baseline updated)"
@@ -417,7 +470,7 @@ if { (( AGENTS_UPDATED + AGENTS_NEW > 0 )) || ( $FORCE_AGENTS && (( AGENTS_CUSTO
                         warn "agent $agent_name appears customized — skipping (use --force-agents to override)"
                     fi
                 else
-                    cp "$agent_file" "$local_agent"
+                    copy_agent_atomically "$agent_file" "$local_agent"
                     # Record/update baseline hash
                     agent_hash="$(file_sha256 "$local_agent")"
                     record_baseline "$AGENT_BASELINE_FILE" "$agent_name" "$agent_hash"

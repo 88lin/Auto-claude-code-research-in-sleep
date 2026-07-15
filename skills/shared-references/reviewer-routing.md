@@ -11,7 +11,7 @@ The default reviewer backend depends on the skill AND the execution environment:
 
 **Copilot CLI for `/auto-review-loop` is explicit opt-in only.** The `COPILOT_CLI` environment variable does not exist persistently (it is an open proposal at github/copilot-cli#2107, not a shipped feature). Until a reliable auto-detection signal ships, `--reviewer: copilot` must be passed explicitly. The default reviewer for `/auto-review-loop` is `codex` (preserving backward compatibility — no breaking change for existing Claude Code users).
 
-See the [Copilot section](#copilot-cli-custom-agent-profiles---reviewer-copilot--default-for-auto-review-loop) for the auto-review-loop default and the [Codex section](#codex-capability-fallback-new-reviewer-sessions-only) for the Codex fallback chain.
+See the [Copilot section](#copilot-cli-custom-agent-profiles---reviewer-copilot--explicit-opt-in-for-auto-review-loop) for the auto-review-loop override and the [Codex section](#codex-capability-fallback-new-reviewer-sessions-only) for the Codex fallback chain.
 
 ### Codex MCP Tiered Reasoning-Effort Policy
 
@@ -188,13 +188,15 @@ If `— reviewer: manual`:
     → Check if mcp__manual_review__review tool is available
     → If available:
         Use mcp__manual_review__review with:
-          prompt: [same prompt you would send to Codex]
-          config: {"model_reasoning_effort": "xhigh"}
+          prompt: [same review prompt you would send to Codex; the manual
+                   transport wrapper also requires the response's first line
+                   to be `Reviewer-Model: <exact-model-id>`]
+          config: {"model_reasoning_effort": "xhigh", "executor_model": "<actual executor model>", "require_reviewer_model": true}
         For round 2+ in multi-round skills:
           Use mcp__manual_review__review_reply with:
             threadId: [saved from prior call]
             prompt: [follow-up prompt]
-            config: {"model_reasoning_effort": "xhigh"}
+            config: {"model_reasoning_effort": "xhigh", "executor_model": "<actual executor model>", "require_reviewer_model": true}
     → If NOT available:
         Print: "⚠️ Manual Review MCP not installed. Install with: claude mcp add manual-review -s user -- python3 /path/to/mcp-servers/manual-review/server.py"
         STOP. Do NOT fall back to Codex (the target user likely has no Codex subscription).
@@ -203,8 +205,8 @@ If `— reviewer: manual`:
 ### Invariants
 
 - `— reviewer: manual` ONLY takes effect when explicitly passed
-- **Cross-model family is mandatory, not optional.** "any model" above means any *non-executor-family* model. When the executor is Claude (the normal case), the user MUST paste the prompt into a non-Claude model (ChatGPT / DeepSeek / Kimi / Gemini / a local model) — never any Claude product. Pasting into Claude makes Claude judge Claude, which silently voids the cross-model invariant and the verdict is worthless. The manual-review UI surfaces this as a banner; the routing contract requires it. A Type-B acceptance gate (`acceptance-gate.md`) is satisfied by `manual` only when the routed model is verifiably non-Claude.
-- Prompt fidelity: the user sees the EXACT same prompt text that Codex would receive
+- **Cross-model family is mandatory, not optional.** "any model" above means any *non-executor-family* model, determined dynamically from the actual executor model — not merely "non-Claude." Every verdict-bearing response must start with `Reviewer-Model: <exact-model-id>`; derive its family and compare it with the model-derived executor family. Missing, unknown, ambiguous, or same-family identity is `REVIEW_UNAVAILABLE` for an acceptance gate. The UI warning is advisory; the traced model identities and derivation are the gate.
+- Prompt fidelity: the review task text is exactly what Codex would receive; the manual transport wrapper may add only the model-identity response-format line used by the provenance gate
 - `config.model_reasoning_effort` is shown as a recommendation badge, not embedded in the prompt
 - Thread continuity: `review_reply` shows previous exchanges so the user can maintain context in their chosen model
 - Reviewer independence protocol still applies
@@ -285,7 +287,7 @@ Both profiles must exist and be loadable by the Copilot CLI (`copilot --agent`).
 
 The maintainer requires: **reviewer model family MUST differ from executor model family.** Same-family review is forbidden regardless of circumstance. There is no "provisional" acceptance.
 
-Unlike the previous broken model-inheritance approach (where a non-GPT executor would silently get a same-family subagent), **each profile pins its model explicitly in the profile file** — the subagent does NOT inherit the executor model.
+Unlike the previous broken model-inheritance approach, the router reads the selected profile's `model:` field and passes that same value through the subprocess-level `--model` flag. This outer pin is mandatory because Copilot CLI may ignore a custom agent's model when the session model is Auto.
 
 **Family detection requires `--executor-model`:**
 
@@ -328,15 +330,17 @@ The auto-review-loop SKILL.md MUST accept `--executor-model <model>` as a parame
 - `executor_model` comes from `--executor-model` (verified: the executor declares it).
 - `executor_family` is derived from `executor_model` via the rules above.
 - `reviewer_profile` is the profile name selected by the router.
-- `requested_reviewer_model` is the model pinned in the selected profile file.
+- `requested_reviewer_model` is read from the selected profile file and passed explicitly with `--model`.
 - `reported_reviewer_model` is what the copilot CLI reports (if it surfaces this — otherwise `"unavailable"`).
-- `reviewer_family` is derived from `reported_reviewer_model` (if available) or from the profile's declared family.
+- `reviewer_family` is derived from `reported_reviewer_model` (if available) or `requested_reviewer_model`; caller-supplied family labels are never trusted.
 - `independence_verified` is `true` only when `executor_family != reviewer_family`; `false` otherwise (which must not happen if the router rule is followed).
 
 **Fail closed when:**
 - `--executor-model` is missing AND `--reviewer: copilot` is used → `REVIEW_UNAVAILABLE`.
 - `executor_family` is `unknown` → `REVIEW_UNAVAILABLE`.
 - The selected profile file does not exist → `REVIEW_UNAVAILABLE`.
+- The profile has no non-empty `model:` field, or the derived reviewer family is unknown/same-family → `REVIEW_UNAVAILABLE`.
+- `copilot --help` does not advertise `--model`, `--effort`, and `--allow-tool` → `REVIEW_UNAVAILABLE`; do not silently run an older unpinned CLI.
 - `independence_verified` is `false` → re-check; if confirmed same-family, `REVIEW_UNAVAILABLE`.
 
 ### Routing Logic
@@ -361,12 +365,17 @@ If `--reviewer: copilot` (explicit opt-in):
         Print: "⚠️ Custom agent profile '<profile>.agent.md' not found.
                 Create it at .github/agents/<profile>.agent.md with model: <model>."
         Emit REVIEW_UNAVAILABLE. Stop.
+    → Read the first frontmatter `model:` value as requested_reviewer_model.
+      Derive reviewer_family from that model string and confirm it differs from
+      executor_family. Never trust a free-form model_family field.
     → Verify `copilot` CLI is available (`command -v copilot`). If not:
         Print: "⚠️ --reviewer: copilot requires Copilot CLI (`copilot` command)."
         Emit REVIEW_UNAVAILABLE. Do NOT fall back to Codex MCP or manual-review MCP
         (the user chose copilot because they may have no MCP access —
         MCP-dependent fallbacks would fail silently).
-    → Use `copilot --agent` with the selected profile for each review round.
+    → Verify the CLI supports `--model`, `--effort`, and `--allow-tool`.
+    → Use `copilot --agent` with the selected profile, the parsed model,
+      `--effort xhigh`, and read-only tool permission for each review round.
 
 If no `--reviewer:` specified:
     → Default to Codex MCP (`codex` backend).
@@ -382,15 +391,39 @@ If no `--reviewer:` specified:
 For the copilot reviewer, use the documented `copilot --agent` subprocess form with custom agent profiles:
 
 ```bash
-# Write assembled prompt to a temp file to avoid shell injection
-# from untrusted prompt content (quotes, backticks, $() re-interpretation)
-PROMPTFILE=$(mktemp)
+# PROFILE_FILE is the router-selected .agent.md file.
+REVIEWER_MODEL="$(python3 - "$PROFILE_FILE" <<'PY'
+import pathlib, sys
+lines = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+models = []
+if lines and lines[0].strip() == "---":
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if line.startswith("model:"):
+            models.append(line.split(":", 1)[1].strip().strip("\"'"))
+if len(models) == 1:
+    print(models[0])
+PY
+)"
+[[ -n "$REVIEWER_MODEL" ]] || { echo "REVIEW_UNAVAILABLE: profile has no model" >&2; exit 1; }
+COPILOT_HELP="$(copilot --help 2>&1)" || { echo "REVIEW_UNAVAILABLE: copilot unavailable" >&2; exit 1; }
+for required_flag in --model --effort --allow-tool; do
+  grep -q -- "$required_flag" <<<"$COPILOT_HELP" || {
+    echo "REVIEW_UNAVAILABLE: copilot lacks $required_flag" >&2
+    exit 1
+  }
+done
+
+# Build the complete round prompt as a data file using the host's file-writing
+# API. Never render untrusted paths/content into shell source.
+REVIEW_TASK_FILE="review-stage/ROUND_${ROUND}_COPILOT_PROMPT.md"
+[[ -f "$REVIEW_TASK_FILE" ]] || { echo "REVIEW_UNAVAILABLE: missing prompt artifact" >&2; exit 1; }
+PROMPTFILE="$(mktemp)" || { echo "REVIEW_UNAVAILABLE: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$PROMPTFILE"' EXIT
-cat > "$PROMPTFILE" <<'PROMPT_EOF'
-[Same review prompt as Codex MCP — role, task, output schema, file paths]
-Read the listed files directly.
-PROMPT_EOF
-copilot --agent "aris-reviewer-openai" --prompt "$(cat "$PROMPTFILE")"
+cat -- "$REVIEW_TASK_FILE" > "$PROMPTFILE"
+copilot --agent "$REVIEWER_PROFILE" --model "$REVIEWER_MODEL" \
+  --effort xhigh --allow-tool=read --prompt "$(cat "$PROMPTFILE")"
 ```
 
 The profile name is the router-selected opposite-family profile (`aris-reviewer-openai` or `aris-reviewer-claude`).
@@ -410,29 +443,38 @@ The profile name is the router-selected opposite-family profile (`aris-reviewer-
 **Pattern for round 2+:**
 
 ```bash
-# Write assembled prompt to a temp file to avoid shell injection
-# from untrusted REVIEWER_MEMORY.md content (quotes, backticks, $() re-interpretation)
-PROMPTFILE=$(mktemp)
+# These variables are data. Do not splice their values into shell source.
+CHANGED_PATHS="<newline-delimited changed paths>"
+DIFF_PATH="<diff artifact path>"
+RESULT_PATHS="<newline-delimited result paths>"
+MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"
+[[ -f "$MEMORY_FILE" ]] || { echo "REVIEW_UNAVAILABLE: missing reviewer memory" >&2; exit 1; }
+PROMPTFILE="$(mktemp)" || { echo "REVIEW_UNAVAILABLE: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$PROMPTFILE"' EXIT
-cat > "$PROMPTFILE" <<'PROMPT_EOF'
+{
+cat <<'ARIS_MEMORY_HEADER'
 [Round N/MAX_ROUNDS]
 
 ## Your Memory From Previous Rounds
-[Paste full contents of REVIEWER_MEMORY.md]
+ARIS_MEMORY_HEADER
+cat -- "$MEMORY_FILE"
+cat <<'ARIS_MEMORY_FOOTER'
 
 ## Current State
 Since your last review these files changed — read them yourself:
-- Changed files: <paths>
-- Raw diff: <path>
-- Updated raw results: <result-file paths>
+ARIS_MEMORY_FOOTER
+printf '%s\n' "Changed files:" "$CHANGED_PATHS" "Raw diff: $DIFF_PATH" "Updated raw results:" "$RESULT_PATHS"
+cat <<'ARIS_MEMORY_INSTRUCTIONS'
 
 Please re-score and re-assess. Are the remaining concerns addressed?
 Same format: Score, Verdict, Remaining Weaknesses, Minimum Fixes.
 
 At the end of your review, write (or append to) the Memory Update section
 in your response — this will be passed back to you next round.
-PROMPT_EOF
-copilot --agent "<same profile as round 1>" --prompt "$(cat "$PROMPTFILE")"
+ARIS_MEMORY_INSTRUCTIONS
+} > "$PROMPTFILE"
+copilot --agent "$REVIEWER_PROFILE" --model "$REVIEWER_MODEL" \
+  --effort xhigh --allow-tool=read --prompt "$(cat "$PROMPTFILE")"
 ```
 
 **IMPORTANT:** This is architecturally different from `SendMessage` (which would require a persistent subagent handle that `copilot --agent` does not provide). The memory-artifact pattern is the documented alternative for stateful multi-round workflows in Copilot CLI.
@@ -442,10 +484,10 @@ copilot --agent "<same profile as round 1>" --prompt "$(cat "$PROMPTFILE")"
 | Capability | Codex MCP | Copilot `--agent` + profiles | Status |
 |-----------|-----------|--------------------------|--------|
 | Task spawning | `mcp__codex__codex` | `copilot --agent` subprocess (documented Copilot CLI form) | **Verified** — in Copilot CLI docs |
-| Model pinning | `gpt-5.6-sol` param | `profile` -> pinned model in agent profile file | **Verified** — custom agent profiles are documented |
+| Model pinning | `gpt-5.6-sol` param | Profile model repeated as subprocess `--model` | **Verified** — prevents Auto-session inheritance |
 | Cross-model family | Configurable (agy, manual, llm-chat) | Router picks opposite-family profile | **Verified** — enforced by router logic |
 | Thread continuity | `codex-reply` (threadId) | New `copilot --agent` call + REVIEWER_MEMORY.md artifact | **Verified** — memory-artifact pattern |
-| Reasoning effort control | `xhigh` / `ultra` tiers | Not exposed; depends on profile defaults | **Known** — profiles have no effort control |
+| Reasoning effort control | `xhigh` / `ultra` tiers | Subprocess `--effort xhigh` | **Verified** — capability-gated before review |
 | File reading | Reads listed files | Can Read files via tools | **Verified** — task subagents have file access |
 | Review tracing | `.aris/traces/` schema | Same artifact schema + executor/reviewer family fields | **Verified** — trace schema updated for copilot backend |
 
@@ -458,21 +500,21 @@ copilot --agent "<same profile as round 1>" --prompt "$(cat "$PROMPTFILE")"
 | Profile pins model in frontmatter | **Verified** | Agent profile format from Copilot CLI docs |
 | `copilot --agent` runs synchronously | **Verified** | Returns response to stdout; confirmed by live testing |
 | Memory-artifact multi-round pattern | **Verified** | Standard for stateless subprocess-based workflows; REVIEWER_MEMORY.md carries state |
-| Reasoning effort in profile | **Known limitation** | Not exposed in profiles; copilot verdicts are `effort_unpinned: true` |
+| Reasoning effort for Copilot | **Verified** | Explicit subprocess `--effort xhigh`; unsupported CLIs fail closed |
 
 ### Invariants
 
 - `--reviewer: copilot` is an **explicit opt-in** for `/auto-review-loop`. The default reviewer backend is `codex` (backward compatible). Use `--reviewer: codex` or `--reviewer: copilot` to select.
 - `--executor-model` is **MANDATORY** when `--reviewer: copilot` is used. Fail closed if missing.
 - **Cross-family invariant is MANDATORY**: router picks opposite-family profile. Same-family → `REVIEW_UNAVAILABLE`. Never "provisional".
-- **Review floor: copilot is drive-only, not acquit.** Copilot profiles pin `gpt-5.4` / `claude-sonnet-4.5` without reasoning-effort control — all verdicts from this backend are `effort_unpinned`. Copilot can iterate (drive the loop), but a `codex` or `manual` backend at `xhigh`+ effort must acquit before acceptance. Copilot-issued verdicts record `effort_unpinned: true` in trace metadata.
-- Custom agent profiles pin models explicitly — the subagent does NOT inherit the executor model.
+- **Review floor: copilot remains drive-only by policy.** Copilot calls are now pinned to `xhigh` and record `effort_unpinned: false`, but final acceptance still requires an independently traced `codex` or `manual` acquittal from a reviewer family different from the executor family.
+- Custom agent profile models are repeated with subprocess `--model`; do not rely on profile-only pinning under an Auto session.
 - Explicit reviewer directives (`codex`, `oracle-pro`, `agy`, `manual`) are separate from copilot.
 - Reviewer independence protocol still applies (pass file paths, not summaries).
 - `effort` and `difficulty` are orthogonal — they don't change the reviewer backend.
 - If `copilot` CLI is unavailable → `REVIEW_UNAVAILABLE` (no MCP-dependent fallback).
 - If executor family is unknown → `REVIEW_UNAVAILABLE` (fail closed).
-- NEVER fabricate a review verdict without an actual task call.
+- NEVER fabricate a review verdict without an actual reviewer call.
 
 ### Using Codex Instead of Copilot
 

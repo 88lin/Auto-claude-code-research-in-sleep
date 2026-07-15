@@ -78,6 +78,59 @@ if [[ "$TRACE_MODE" == "off" ]]; then
   exit 0
 fi
 
+# Derive provenance from model identities, never from caller-supplied family or
+# independence labels.  The legacy family/independence flags remain accepted so
+# older callers do not break, but they are only consistency hints.
+derive_model_family() {
+  ST_MODEL_NAME="$1" python3 -c '
+import os, re
+
+name = (os.environ.get("ST_MODEL_NAME") or "").strip().lower()
+families = set()
+if re.search(r"(^|[^a-z0-9])(gpt|chatgpt|codex|oracle|o1|o3|o4)([^a-z0-9]|$)", name):
+    families.add("openai")
+if re.search(r"(^|[^a-z0-9])(claude|sonnet|opus|haiku|anthropic)([^a-z0-9]|$)", name):
+    families.add("anthropic")
+if re.search(r"(^|[^a-z0-9])(gemini|google)([^a-z0-9]|$)", name):
+    families.add("google")
+print(next(iter(families)) if len(families) == 1 else "unknown")
+'
+}
+
+lowercase() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+CALLER_EXECUTOR_FAMILY="$EXECUTOR_FAMILY"
+CALLER_REVIEWER_FAMILY="$REVIEWER_FAMILY"
+CALLER_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED"
+
+EFFECTIVE_REVIEWER_MODEL="$REPORTED_REVIEWER_MODEL"
+case "$(lowercase "$EFFECTIVE_REVIEWER_MODEL")" in
+  ""|unknown|unavailable|none|null) EFFECTIVE_REVIEWER_MODEL="${REQUESTED_REVIEWER_MODEL:-$MODEL}" ;;
+esac
+
+EXECUTOR_FAMILY="$(derive_model_family "$EXECUTOR_MODEL")"
+REVIEWER_FAMILY="$(derive_model_family "$EFFECTIVE_REVIEWER_MODEL")"
+
+if [[ -n "$CALLER_EXECUTOR_FAMILY" && "$(lowercase "$CALLER_EXECUTOR_FAMILY")" != "$EXECUTOR_FAMILY" ]]; then
+  echo "warning: ignoring executor family '$CALLER_EXECUTOR_FAMILY'; model '$EXECUTOR_MODEL' derives as '$EXECUTOR_FAMILY'" >&2
+fi
+if [[ -n "$CALLER_REVIEWER_FAMILY" && "$(lowercase "$CALLER_REVIEWER_FAMILY")" != "$REVIEWER_FAMILY" ]]; then
+  echo "warning: ignoring reviewer family '$CALLER_REVIEWER_FAMILY'; model '$EFFECTIVE_REVIEWER_MODEL' derives as '$REVIEWER_FAMILY'" >&2
+fi
+
+if [[ "$EXECUTOR_FAMILY" == "unknown" || "$REVIEWER_FAMILY" == "unknown" ]]; then
+  INDEPENDENCE_VERIFIED="unverified"
+elif [[ "$EXECUTOR_FAMILY" != "$REVIEWER_FAMILY" ]]; then
+  INDEPENDENCE_VERIFIED="true"
+else
+  INDEPENDENCE_VERIFIED="false"
+fi
+if [[ -n "$CALLER_INDEPENDENCE_VERIFIED" && "$(lowercase "$CALLER_INDEPENDENCE_VERIFIED")" != "$INDEPENDENCE_VERIFIED" ]]; then
+  echo "warning: ignoring independence value '$CALLER_INDEPENDENCE_VERIFIED'; model-derived value is '$INDEPENDENCE_VERIFIED'" >&2
+fi
+
 # --- Read from files if provided ---
 if [[ -n "$PROMPT_FILE" && -f "$PROMPT_FILE" ]]; then
   PROMPT=$(cat "$PROMPT_FILE")
@@ -148,7 +201,8 @@ if [[ "$TRACE_MODE" == "full" ]]; then
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os, sys
 e = os.environ
-effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
+                   (e.get("ST_EFFORT") or "").lower() != "xhigh")
 # Validate both families against the known set before comparing.
 # Unknown or unset families produce "unverified" — the schema’s
 # "both known" rule means we must not guess independence.
@@ -200,7 +254,8 @@ else
   ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.request.json" python3 -c '
 import json, os
 e = os.environ
-effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
+                   (e.get("ST_EFFORT") or "").lower() != "xhigh")
 # Validate both families against the known set before comparing.
 # Unknown or unset families produce "unverified" — the schema’s
 # "both known" rule means we must not guess independence.
@@ -250,7 +305,8 @@ ST_MEMORY_HASH="$MEMORY_HASH" \
 ST_OUT="${RUN_DIR}/${CALL_PREFIX}-${PURPOSE}.meta.json" python3 -c '
 import json, os
 e = os.environ
-effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
+                   (e.get("ST_EFFORT") or "").lower() != "xhigh")
 # Validate both families against the known set before comparing.
 # Unknown or unset families produce "unverified" — the schema’s
 # "both known" rule means we must not guess independence.
@@ -289,12 +345,14 @@ if [[ -d ".aris/meta" ]]; then
   ST_SKILL="$SKILL" ST_PURPOSE="$PURPOSE" ST_THREAD="$THREAD_ID" \
   ST_TRACE="${RUN_DIR}/" ST_STATUS="$STATUS" ST_EVENTS="$EVENTS_FILE" \
   ST_BACKEND="$BACKEND" ST_TOOL="$TOOL" \
+  ST_EFFORT="$EFFORT" \
   ST_EXECUTOR="${EXECUTOR:-claude-code}" ST_EXECUTOR_FAMILY="$EXECUTOR_FAMILY" ST_REVIEWER_FAMILY="$REVIEWER_FAMILY" \
   ST_MEMORY_HASH="$MEMORY_HASH" \
   ST_INDEPENDENCE_VERIFIED="$INDEPENDENCE_VERIFIED" python3 -c '
 import json, os
 e = os.environ
-effort_unpinned = (e.get("ST_BACKEND") == "copilot")
+effort_unpinned = (e.get("ST_BACKEND") == "copilot" and
+                   (e.get("ST_EFFORT") or "").lower() != "xhigh")
 # Validate both families against the known set before comparing.
 # Unknown or unset families produce "unverified" — the schema’s
 # "both known" rule means we must not guess independence.

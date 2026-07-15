@@ -1,6 +1,7 @@
 """Tests for install_aris_copilot.sh and smart_update_copilot.sh."""
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SCRIPT = REPO_ROOT / "tools" / "install_aris_copilot.sh"
 UPDATE_SCRIPT = REPO_ROOT / "tools" / "smart_update_copilot.sh"
+TRACE_SCRIPT = REPO_ROOT / "tools" / "save_trace.sh"
 
 
 def run(
@@ -392,7 +394,7 @@ def test_smart_update_copilot_copy_install(tmp_path: Path) -> None:
         ]
     )
     assert dry_run.returncode == 0
-    assert "Run with --apply" in dry_run.stdout
+    assert "Dry run complete. Use --apply to apply these changes." in dry_run.stdout
 
     # Apply
     result = run(
@@ -526,6 +528,37 @@ def test_install_copilot_deploys_agents(tmp_path: Path) -> None:
     assert (agents_dir / "aris-reviewer-claude.agent.md").resolve() == (repo_agents / "aris-reviewer-claude.agent.md")
 
 
+def test_reviewer_profiles_use_supported_frontmatter_and_explicit_models() -> None:
+    for name, model in (
+        ("aris-reviewer-openai.agent.md", "gpt-5.4"),
+        ("aris-reviewer-claude.agent.md", "claude-sonnet-4.5"),
+    ):
+        text = (REPO_ROOT / ".github" / "agents" / name).read_text()
+        assert f"model: {model}" in text
+        assert "model_family:" not in text
+        assert "tools: read" in text
+
+
+def test_install_copilot_skips_symlinked_upstream_agents_directory(tmp_path: Path) -> None:
+    repo = make_minimal_aris_repo(tmp_path)
+    external = tmp_path / "external-agents"
+    external.mkdir()
+    (external / "aris-reviewer-openai.agent.md").write_text("---\nmodel: gpt-5.4\n---\n")
+    (repo / ".github").mkdir()
+    (repo / ".github" / "agents").symlink_to(external, target_is_directory=True)
+    project = tmp_path / "project"
+    project.mkdir()
+
+    result = run(
+        ["bash", str(INSTALL_SCRIPT), str(project), "--aris-repo", str(repo), "--quiet"],
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "skipping symlinked upstream agents directory" in result.stderr
+    assert not (project / ".github" / "agents" / "aris-reviewer-openai.agent.md").exists()
+
+
 def test_smart_update_copilot_deploys_agents(tmp_path: Path) -> None:
     """smart_update_copilot.sh deploys .github/agents/ in copy-mode."""
     upstream = tmp_path / "upstream"
@@ -559,6 +592,97 @@ def test_smart_update_copilot_deploys_agents(tmp_path: Path) -> None:
     assert deployed_agent.read_text() == agent_content, (
         f"Deployed agent content does not match custom upstream"
     )
+
+
+def _make_copy_update_with_agent(tmp_path: Path) -> tuple[Path, Path, str]:
+    upstream = tmp_path / "upstream"
+    make_skill(upstream / "alpha", "---\nname: alpha\n---\n# alpha\n")
+    upstream_agents = upstream.parent / ".github" / "agents"
+    upstream_agents.mkdir(parents=True, exist_ok=True)
+    content = "---\nmodel: gpt-5.4\n---\n# guarded-agent\n"
+    (upstream_agents / "aris-reviewer-openai.agent.md").write_text(content)
+    local = tmp_path / "local"
+    local.mkdir()
+    return upstream, local, content
+
+
+def test_smart_update_refuses_existing_agent_symlink(tmp_path: Path) -> None:
+    """An agent file symlink must never redirect an update outside the target."""
+    upstream, local, _ = _make_copy_update_with_agent(tmp_path)
+    agents = local.parent / "agents"
+    agents.mkdir()
+    external = tmp_path / "external.agent.md"
+    external.write_text("do-not-touch\n")
+    link = agents / "aris-reviewer-openai.agent.md"
+    link.symlink_to(external)
+
+    result = run(
+        ["bash", str(UPDATE_SCRIPT), "--upstream", str(upstream), "--local", str(local), "--apply"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "refusing symlinked agent destination" in result.stderr
+    assert link.is_symlink()
+    assert external.read_text() == "do-not-touch\n"
+
+
+def test_smart_update_refuses_broken_agent_symlink(tmp_path: Path) -> None:
+    """A broken destination symlink must not be followed or repaired by copying."""
+    upstream, local, _ = _make_copy_update_with_agent(tmp_path)
+    agents = local.parent / "agents"
+    agents.mkdir()
+    external = tmp_path / "missing-external.agent.md"
+    link = agents / "aris-reviewer-openai.agent.md"
+    link.symlink_to(external)
+
+    result = run(
+        ["bash", str(UPDATE_SCRIPT), "--upstream", str(upstream), "--local", str(local), "--apply"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "refusing symlinked agent destination" in result.stderr
+    assert link.is_symlink()
+    assert not external.exists()
+
+
+def test_smart_update_refuses_symlinked_agents_directory(tmp_path: Path) -> None:
+    """A symlinked agents directory must not redirect profile deployment."""
+    upstream, local, _ = _make_copy_update_with_agent(tmp_path)
+    external_dir = tmp_path / "external-agents"
+    external_dir.mkdir()
+    (local.parent / "agents").symlink_to(external_dir, target_is_directory=True)
+
+    result = run(
+        ["bash", str(UPDATE_SCRIPT), "--upstream", str(upstream), "--local", str(local), "--apply"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "refusing symlinked agent destination path" in result.stderr
+    assert not (external_dir / "aris-reviewer-openai.agent.md").exists()
+
+
+def test_smart_update_refuses_symlinked_upstream_agents_directory(tmp_path: Path) -> None:
+    upstream = tmp_path / "upstream"
+    make_skill(upstream / "alpha", "---\nname: alpha\n---\n# alpha\n")
+    external = tmp_path / "external-upstream-agents"
+    external.mkdir()
+    (external / "aris-reviewer-openai.agent.md").write_text("---\nmodel: gpt-5.4\n---\n")
+    (tmp_path / ".github").mkdir()
+    (tmp_path / ".github" / "agents").symlink_to(external, target_is_directory=True)
+    local = tmp_path / "local"
+    local.mkdir()
+
+    result = run(
+        ["bash", str(UPDATE_SCRIPT), "--upstream", str(upstream), "--local", str(local), "--apply"],
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "refusing symlinked upstream agents directory" in result.stderr
+    assert not (local.parent / "agents").exists()
 
 
 def test_install_copilot_reconcile_agents(tmp_path: Path) -> None:
@@ -674,6 +798,33 @@ def test_routing_fail_closed_unknown_executor_family(tmp_path: Path) -> None:
     assert "unknown" in skill_text
 
 
+def test_copilot_prompt_templates_keep_untrusted_text_out_of_heredocs() -> None:
+    """Memory and rebuttal artifacts are concatenated as data, not shell source."""
+    skill_text = (REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md").read_text()
+    routing_text = (REPO_ROOT / "skills" / "shared-references" / "reviewer-routing.md").read_text()
+
+    for text in (skill_text, routing_text):
+        assert "PROMPT_EOF" not in text
+        assert 'reviewer_prompt_$$' not in text
+        assert 'PROMPTFILE="$(mktemp)" || {' in text
+        assert '--model "$REVIEWER_MODEL"' in text
+        assert "--effort xhigh" in text
+        assert "--allow-tool=read" in text
+    assert 'cat -- "$MEMORY_FILE"' in skill_text
+    assert 'cat -- "$REBUTTAL_FILE"' in skill_text
+    assert 'cat -- "$MEMORY_FILE"' in routing_text
+
+
+def test_stop_gate_uses_current_round_backend_and_model_derived_families() -> None:
+    skill_text = (REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md").read_text()
+
+    assert "branch by `round_backend`" in skill_text
+    assert "never by the forward-looking `REVIEWER_BACKEND`" in skill_text
+    assert 'executor_model' in skill_text
+    assert 'reviewer_model' in skill_text
+    assert "Never trust receipt family strings" in skill_text
+
+
 # --- Legacy-state resume tests ---
 
 def test_legacy_review_state_missing_backend_defaults_to_codex(tmp_path: Path) -> None:
@@ -741,25 +892,116 @@ def test_save_trace_executor_field_not_hardcoded(tmp_path: Path) -> None:
     assert 'ST_EXECUTOR' in script_text or 'EXECUTOR' in script_text
 
 
-def test_save_trace_effort_unpinned_for_copilot(tmp_path: Path) -> None:
-    """When backend is copilot, effort_unpinned is true in traces."""
-    trace_script = REPO_ROOT / "tools" / "save_trace.sh"
-    script_text = trace_script.read_text()
+def _save_trace_request(tmp_path: Path, *extra: str) -> tuple[dict, dict, dict]:
+    result = run(
+        [
+            "bash",
+            str(TRACE_SCRIPT),
+            "--skill",
+            "auto-review-loop",
+            "--purpose",
+            "round-review",
+            "--prompt",
+            "review this",
+            "--response",
+            "ready",
+            *extra,
+        ],
+        cwd=tmp_path,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    run_dir = next((tmp_path / ".aris" / "traces" / "auto-review-loop").iterdir())
+    request = json.loads(next(run_dir.glob("*.request.json")).read_text())
+    meta = json.loads(next(run_dir.glob("*.meta.json")).read_text())
+    run_meta = json.loads((run_dir / "run.meta.json").read_text())
+    return request, meta, run_meta
 
-    assert "effort_unpinned" in script_text
-    assert "copilot" in script_text
+
+def test_save_trace_copilot_xhigh_is_pinned(tmp_path: Path) -> None:
+    request, meta, _ = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "xhigh",
+        "--executor-model", "claude-sonnet-4.5",
+        "--requested-reviewer-model", "gpt-5.4",
+    )
+
+    assert request["effort"] == "xhigh"
+    assert request["effort_unpinned"] is False
+    assert meta["effort_unpinned"] is False
 
 
-def test_save_trace_independence_verified_derived(tmp_path: Path) -> None:
-    """independence_verified is derived, not blindly trusted from caller input."""
-    trace_script = REPO_ROOT / "tools" / "save_trace.sh"
-    script_text = trace_script.read_text()
+def test_save_trace_unpinned_copilot_call_remains_ineligible(tmp_path: Path) -> None:
+    request, _, _ = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "high",
+        "--executor-model", "claude-sonnet-4.5",
+        "--requested-reviewer-model", "gpt-5.4",
+    )
 
-    # Must contain the "unverified" fallback logic
-    assert '"unverified"' in script_text
-    # Must derive from families, not just pass through
-    assert "ST_EXECUTOR_FAMILY" in script_text
-    assert "ST_REVIEWER_FAMILY" in script_text
+    assert request["effort_unpinned"] is True
+
+
+def test_save_trace_rejects_spoofed_family_and_independence(tmp_path: Path) -> None:
+    """Same-family models stay same-family despite contradictory caller labels."""
+    request, meta, run_meta = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "xhigh",
+        "--executor-model", "gpt-5.4",
+        "--executor-family", "anthropic",
+        "--requested-reviewer-model", "gpt-5.4",
+        "--reviewer-family", "google",
+        "--independence-verified", "true",
+    )
+
+    assert request["executor_family"] == "openai"
+    assert request["reviewer_family"] == "openai"
+    assert request["independence_verified"] is False
+    assert meta["model_family"] == "openai"
+    assert meta["independence_verified"] is False
+    assert run_meta["executor_family"] == "openai"
+    assert run_meta["reviewer_family"] == "openai"
+
+
+def test_save_trace_derives_cross_family_from_models(tmp_path: Path) -> None:
+    request, _, _ = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "xhigh",
+        "--executor-model", "claude-sonnet-4.5",
+        "--executor-family", "openai",
+        "--requested-reviewer-model", "gpt-5.4",
+        "--reviewer-family", "anthropic",
+        "--independence-verified", "false",
+    )
+
+    assert request["executor_family"] == "anthropic"
+    assert request["reviewer_family"] == "openai"
+    assert request["independence_verified"] is True
+
+
+def test_save_trace_unknown_model_is_unverified(tmp_path: Path) -> None:
+    request, _, _ = _save_trace_request(
+        tmp_path,
+        "--backend", "copilot",
+        "--model", "gpt-5.4",
+        "--effort", "xhigh",
+        "--executor-model", "mystery-model",
+        "--requested-reviewer-model", "gpt-5.4",
+        "--executor-family", "anthropic",
+        "--independence-verified", "true",
+    )
+
+    assert request["executor_family"] == "unknown"
+    assert request["reviewer_family"] == "openai"
+    assert request["independence_verified"] == "unverified"
 
 
 def test_review_tracing_doc_copilot_model_is_gpt5_4(tmp_path: Path) -> None:

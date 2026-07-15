@@ -243,6 +243,19 @@ def test_codex_review_assurance_is_explicit_and_honest() -> None:
         assert "mcp__claude-review__review_status" in text
 
 
+def test_codex_auto_review_has_one_receipt_append_phase() -> None:
+    text = read(CODEX_SKILLS / "auto-review-loop" / "SKILL.md")
+    gate = text.split("#### Phase B.5.1: Stop-Evaluation Gate", 1)[1].split(
+        "#### Phase B.6:", 1
+    )[0]
+
+    assert "Do not write a receipt here" in gate
+    assert "Phase E is the single append site" in gate
+    assert '"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>"' in text
+    assert "fabricated `trace_...` identifier" in text
+    assert 'round 3 (score=8, "ready")' not in text
+
+
 def test_overlay_boundaries_are_exact() -> None:
     expected_claude = {
         "auto-paper-improvement-loop",

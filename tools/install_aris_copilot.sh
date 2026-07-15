@@ -193,17 +193,21 @@ build_upstream_inventory() {
     # Include agent profiles from .github/agents/
     agents_dir="$repo/.github/agents"
     if [[ -d "$agents_dir" ]]; then
-        for f in "$agents_dir"/*.md; do
-            [[ -f "$f" ]] || continue
-            # Resolve symlink and verify it's within the expected directory
-            local resolved; resolved="$(canonicalize "$f")"
-            local agents_canon; agents_canon="$(canonicalize "$agents_dir")"
-            [[ "$resolved" == "$agents_canon"/* ]] || { warn "skipping external symlink: $f -> $resolved"; continue; }
-            agent_name="$(basename "$f")"
-            base_name="${agent_name%.agent.md}"
-            is_safe_name "$base_name" || { warn "skipping unsafe agent name: $agent_name"; continue; }
-            printf "agent|%s|.github/agents/%s\n" "$agent_name" "$agent_name" >> "$out"
-        done
+        if [[ -L "$agents_dir" ]]; then
+            warn "skipping symlinked upstream agents directory: $agents_dir"
+        else
+            for f in "$agents_dir"/*.agent.md; do
+                [[ -f "$f" ]] || continue
+                # Resolve symlink and verify it's within the expected directory
+                local resolved; resolved="$(canonicalize "$f")"
+                local agents_canon; agents_canon="$(canonicalize "$agents_dir")"
+                [[ "$resolved" == "$agents_canon"/* ]] || { warn "skipping external symlink: $f -> $resolved"; continue; }
+                agent_name="$(basename "$f")"
+                base_name="${agent_name%.agent.md}"
+                is_safe_name "$base_name" || { warn "skipping unsafe agent name: $agent_name"; continue; }
+                printf "agent|%s|.github/agents/%s\n" "$agent_name" "$agent_name" >> "$out"
+            done
+        fi
     fi
 
     [[ -s "$out" ]] || die "upstream inventory empty"

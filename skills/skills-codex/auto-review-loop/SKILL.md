@@ -206,7 +206,7 @@ Rules:
 
 #### Phase B.5.1: Stop-Evaluation Gate
 
-**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify) → **write an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`** (see Append-Only Acquittal Receipt rules above), then stop loop, document final state.
+**STOP CONDITION**: If score >= 6 AND verdict ∈ {"ready", "almost"} (exact match — "not ready" does NOT qualify), decide to stop and continue through Phase E. **Do not write a receipt here**; Phase E is the single append site.
 
 This evaluation runs AFTER Phase B.5 so the terminal-round memory is always appended to REVIEWER_MEMORY.md before exit.
 
@@ -340,9 +340,9 @@ This is the authoritative record. Do NOT truncate or paraphrase.]
 
 **If score >= 6 AND verdict ∈ {"ready", "almost"}:** append an acquittal line to `review-stage/ACQUITTAL_LOG.jsonl`:
 ```
-{"run_id":"<current-run_id>","round":<N>,"backend":"codex","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"trace_<YYYYMMDD>_run<NN>","timestamp":"<ISO8601>"}
+{"run_id":"<current-run_id>","round":<N>,"backend":"codex","effort":"xhigh","verdict":"<ready|almost>","score":<score>,"trace_id":"<skill>/<YYYY-MM-DD>_run<NN>","timestamp":"<ISO8601>"}
 ```
-Use `>>` (append), never `>`. The `trace_id` must reference the trace artifact written per Review Tracing protocol for this round's reviewer call.
+Use `>>` (append), never `>`. The `trace_id` must be the actual trace directory relative to `.aris/traces/` (for example `auto-review-loop/2026-07-13_run01`), not a fabricated `trace_...` identifier.
 
 **Append to `findings.md`** (when `COMPACT = true`): one-line entry per key finding this round.
 
@@ -445,8 +445,8 @@ The following test cases validate the `run_id` + append-only acquittal receipt m
 
 ### Test 4: Append-Only Integrity
 
-**Setup:** Run producing three rounds: round 1 (score=5), round 2 (score=7, "ready"), round 3 (score=8, "ready").
+**Setup:** Run 1 reaches a positive verdict, appends one receipt, and stops. Start Run 2 with a new `run_id`; it also reaches a positive verdict and appends one receipt.
 
 **Action:** After the loop, inspect `ACQUITTAL_LOG.jsonl`.
 
-**Expected:** File contains exactly 2 lines (round 2 and round 3), each with the same `run_id`. Lines are never overwritten or deleted.
+**Expected:** File contains exactly 2 lines with different run IDs. Run 1's line remains unchanged after Run 2 appends; a stopped loop cannot continue to a later positive round.

@@ -51,6 +51,8 @@
 #       path or differently-targeted symlink at `.aris/tools` is left alone.
 #   S12 Temp files live in the same directory as the destination.
 #   S13 Skill names must match ^[A-Za-z0-9][A-Za-z0-9._-]*$ (slug regex).
+#   S14 Copilot agent links are removed only when listed in the dedicated
+#       installed-agent-profiles.txt ownership sidecar.
 
 set -euo pipefail
 
@@ -58,6 +60,7 @@ set -euo pipefail
 MANIFEST_VERSION="1"
 MANIFEST_NAME="installed-skills.txt"
 MANIFEST_PREV_NAME="installed-skills.txt.prev"
+AGENT_MANIFEST_NAME="installed-agent-profiles.txt"
 ARIS_DIR_NAME=".aris"
 LOCK_DIR_NAME=".install.lock.d"
 SKILLS_REL=".claude/skills"
@@ -328,6 +331,7 @@ PROJECT_SKILLS_DIR="$PROJECT_PATH/$SKILLS_REL"
 PROJECT_ARIS_DIR="$PROJECT_PATH/$ARIS_DIR_NAME"
 MANIFEST_PATH="$PROJECT_ARIS_DIR/$MANIFEST_NAME"
 MANIFEST_PREV="$PROJECT_ARIS_DIR/$MANIFEST_PREV_NAME"
+AGENT_MANIFEST_PATH="$PROJECT_ARIS_DIR/$AGENT_MANIFEST_NAME"
 LOCK_DIR="$PROJECT_ARIS_DIR/$LOCK_DIR_NAME"
 DOC_FILE="$PROJECT_PATH/$DOC_FILE_NAME"
 
@@ -675,9 +679,28 @@ remove_tools_symlink() {
 # user-created files/dirs/symlinks at the target path are left alone.
 # Pure-additive — existing users who don't rerun the installer never see
 # this. Idempotent across re-runs.
+record_managed_agent_profile() {
+    local name="$1" tmp="$AGENT_MANIFEST_PATH.tmp.$$" unsorted="$AGENT_MANIFEST_PATH.unsorted.$$"
+    mkdir -p "$PROJECT_ARIS_DIR"
+    if [[ -L "$AGENT_MANIFEST_PATH" ]]; then
+        warn "$AGENT_MANIFEST_PATH is a symlink; refusing to record agent ownership"
+        return 1
+    fi
+    if [[ -f "$AGENT_MANIFEST_PATH" ]]; then
+        cp "$AGENT_MANIFEST_PATH" "$unsorted" || { rm -f "$unsorted" "$tmp"; return 1; }
+    else
+        : > "$unsorted" || return 1
+    fi
+    printf '%s\n' "$name" >> "$unsorted" || { rm -f "$unsorted" "$tmp"; return 1; }
+    sort -u "$unsorted" > "$tmp" || { rm -f "$unsorted" "$tmp"; return 1; }
+    rm -f "$unsorted"
+    mv -f "$tmp" "$AGENT_MANIFEST_PATH"
+}
+
 ensure_agent_profiles() {
     local src_dir="$ARIS_REPO/$AGENT_PROFILES_SRC"
     [[ -d "$src_dir" ]] || return 0  # no profiles to deploy
+    [[ ! -L "$src_dir" ]] || { warn "skipping symlinked upstream agents directory: $src_dir"; return 0; }
     local target_dir="$PROJECT_PATH/.github/agents"
     local deployed=0 name src target
 
@@ -710,6 +733,10 @@ ensure_agent_profiles() {
         else
             mkdir -p "$target_dir"
             ln -s "$src" "$target"
+            if ! record_managed_agent_profile "$name"; then
+                rm -f "$target"
+                die "could not record ownership for .github/agents/$name"
+            fi
             deployed=$((deployed + 1))
         fi
     done
@@ -719,22 +746,24 @@ ensure_agent_profiles() {
     fi
 }
 
-# Counterpart for uninstall: only remove agent profile symlinks whose
-# target is inside <aris-repo>/.github/agents/. User-created files or
-# differently-targeted symlinks are left alone.
+# Counterpart for uninstall: only remove agent profile symlinks explicitly
+# recorded when this installer created them. An identical pre-existing link is
+# user-owned and must survive uninstall.
 remove_agent_profiles() {
     local target_dir="$PROJECT_PATH/.github/agents"
-    [[ -d "$target_dir" ]] || return 0
+    [[ -d "$target_dir" || -L "$target_dir" ]] || return 0
+    [[ -f "$AGENT_MANIFEST_PATH" ]] || return 0
+    [[ ! -L "$AGENT_MANIFEST_PATH" ]] || { warn "$AGENT_MANIFEST_PATH is a symlink; refusing agent cleanup"; return 0; }
     local src_dir="$ARIS_REPO/$AGENT_PROFILES_SRC"
-    [[ -d "$src_dir" ]] || return 0
     local name target removed=0
 
-    for target in "$target_dir"/*.agent.md; do
+    while IFS= read -r name; do
+        [[ "$name" =~ $SAFE_NAME_REGEX && "$name" == *.agent.md ]] || { warn "invalid agent manifest entry: $name"; continue; }
+        target="$target_dir/$name"
         [[ -L "$target" ]] || continue
-        name="$(basename "$target")"
         local cur; cur="$(read_link_target "$target")"
         [[ "$cur" != /* ]] && cur="$(canonicalize "$(dirname "$target")/$cur")"
-        # Only remove if target points into our source dir
+        # Revalidate the exact source target before mutation.
         if [[ "$cur" == "$src_dir/$name" ]]; then
             if $DRY_RUN; then
                 log "  (dry-run) rm $target"
@@ -743,12 +772,15 @@ remove_agent_profiles() {
                 removed=$((removed + 1))
             fi
         fi
-    done
+    done < "$AGENT_MANIFEST_PATH"
 
     if ! $DRY_RUN && (( removed > 0 )); then
         log "  - .github/agents/ ($removed copilot profile(s) removed)"
         # Remove directory if empty after cleanup
         rmdir "$target_dir" 2>/dev/null || true
+    fi
+    if ! $DRY_RUN; then
+        rm -f "$AGENT_MANIFEST_PATH"
     fi
 }
 
