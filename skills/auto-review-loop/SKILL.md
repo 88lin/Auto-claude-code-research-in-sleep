@@ -757,15 +757,24 @@ When loop ends (positive assessment or max rounds):
 
 Use the selected backend. *For copilot:* fresh `copilot --agent` subprocess with the same profile + `review-stage/REVIEWER_MEMORY.md` artifact. *For codex:* `mcp__codex__codex-reply` with the saved threadId. *For manual:* `mcp__manual_review__review_reply` with the saved threadId.
 
+Before invoking the Copilot subprocess, use the **Write tool** (not Bash,
+`echo`, a heredoc, or generated shell assignments) to overwrite
+`review-stage/CURRENT_REVIEW_INPUTS.md`. Put the exact changed paths, diff
+artifact/range, and result paths under static labels in that file. Repository
+paths are untrusted data: never splice any byte from this artifact into shell
+source. The fixed filename below is the only value the shell template needs.
+
 ```
 [For copilot:]
 
-# Dynamic values remain data; do not paste them into heredoc source.
+# ARIS_ROUND2_COPILOT_BEGIN
+# Dynamic values were written with the Write tool; shell only reads them as data.
 MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"
-CHANGED_PATHS="<newline-delimited changed paths>"
-DIFF_PATH="<diff artifact path or git range>"
-RESULT_PATHS="<newline-delimited result paths>"
-[[ -f "$MEMORY_FILE" ]] || { echo "REVIEW_UNAVAILABLE: missing reviewer memory" >&2; exit 1; }
+ROUND_INPUT_FILE="review-stage/CURRENT_REVIEW_INPUTS.md"
+[[ -f "$MEMORY_FILE" && -f "$ROUND_INPUT_FILE" ]] || {
+  echo "REVIEW_UNAVAILABLE: missing reviewer memory or round inputs" >&2
+  exit 1
+}
 PROMPTFILE="$(mktemp)" || { echo "REVIEW_UNAVAILABLE: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$PROMPTFILE"' EXIT
 {
@@ -780,8 +789,7 @@ cat <<'ARIS_ROUND_STATE'
 Since your last review these files changed — read them yourself; do not
 take my word for what changed or whether it worked:
 ARIS_ROUND_STATE
-printf '%s\n' "Changed files:" "$CHANGED_PATHS" "Raw diff: $DIFF_PATH" \
-  "Updated raw results:" "$RESULT_PATHS"
+cat -- "$ROUND_INPUT_FILE"
 cat <<'ARIS_ROUND_INSTRUCTIONS'
 
 Please re-score and re-assess. Are the remaining concerns addressed?
@@ -793,6 +801,7 @@ ARIS_ROUND_INSTRUCTIONS
 } > "$PROMPTFILE"
 copilot --agent "$REVIEWER_PROFILE" --model "$REVIEWER_MODEL" \
   --effort xhigh --allow-tool=read --prompt "$(cat "$PROMPTFILE")"
+# ARIS_ROUND2_COPILOT_END
 
 [For codex:] mcp__codex__codex-reply:
   threadId: [saved from round 1]

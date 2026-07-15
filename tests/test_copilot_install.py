@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -804,7 +805,7 @@ def test_routing_fail_closed_unknown_executor_family(tmp_path: Path) -> None:
 
 
 def test_copilot_prompt_templates_keep_untrusted_text_out_of_heredocs() -> None:
-    """Memory and rebuttal artifacts are concatenated as data, not shell source."""
+    """Memory, rebuttal, and round inputs are concatenated as data, not shell source."""
     skill_text = (REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md").read_text()
     routing_text = (REPO_ROOT / "skills" / "shared-references" / "reviewer-routing.md").read_text()
 
@@ -815,12 +816,80 @@ def test_copilot_prompt_templates_keep_untrusted_text_out_of_heredocs() -> None:
         assert '--model "$REVIEWER_MODEL"' in text
         assert "--effort xhigh" in text
         assert "--allow-tool=read" in text
+        assert 'ROUND_INPUT_FILE="review-stage/CURRENT_REVIEW_INPUTS.md"' in text
+        assert 'cat -- "$ROUND_INPUT_FILE"' in text
+        assert 'CHANGED_PATHS="<newline-delimited changed paths>"' not in text
+        assert 'DIFF_PATH="<diff artifact path' not in text
+        assert 'RESULT_PATHS="<newline-delimited result paths>"' not in text
+        assert "# ARIS_ROUND2_COPILOT_BEGIN" in text
+        assert "# ARIS_ROUND2_COPILOT_END" in text
     assert 'cat -- "$MEMORY_FILE"' in skill_text
     assert 'cat -- "$REBUTTAL_FILE"' in skill_text
     assert 'cat -- "$MEMORY_FILE"' in routing_text
     for text in (skill_text, routing_text):
         assert 'MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"' in text
         assert 'MEMORY_FILE="REVIEWER_MEMORY.md"' not in text
+
+
+def test_copilot_round2_templates_do_not_execute_malicious_path_data(tmp_path: Path) -> None:
+    """Repository-controlled path bytes stay data throughout both documented shell templates."""
+    documents = (
+        REPO_ROOT / "skills" / "auto-review-loop" / "SKILL.md",
+        REPO_ROOT / "skills" / "shared-references" / "reviewer-routing.md",
+    )
+
+    for index, document in enumerate(documents):
+        text = document.read_text()
+        shell = text.split("# ARIS_ROUND2_COPILOT_BEGIN", 1)[1].split(
+            "# ARIS_ROUND2_COPILOT_END", 1
+        )[0]
+
+        case_dir = tmp_path / f"case-{index}"
+        review_dir = case_dir / "review-stage"
+        bin_dir = case_dir / "bin"
+        review_dir.mkdir(parents=True)
+        bin_dir.mkdir()
+
+        marker = case_dir / "shell-injection-ran"
+        malicious_inputs = (
+            "Changed files (verbatim):\n"
+            f'evil"; touch "{marker}"; #\n'
+            f'$(touch "{marker}")\n'
+            f'`touch "{marker}"`\n'
+        )
+        (review_dir / "REVIEWER_MEMORY.md").write_text("reviewer memory\n")
+        (review_dir / "CURRENT_REVIEW_INPUTS.md").write_text(malicious_inputs)
+
+        capture_file = case_dir / "captured-prompt.md"
+        copilot = bin_dir / "copilot"
+        copilot.write_text(
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "while (($#)); do\n"
+            "  if [[ \"$1\" == \"--prompt\" ]]; then\n"
+            "    shift\n"
+            "    printf '%s' \"$1\" > \"$CAPTURE_FILE\"\n"
+            "    exit 0\n"
+            "  fi\n"
+            "  shift\n"
+            "done\n"
+            "exit 64\n"
+        )
+        copilot.chmod(0o755)
+
+        env = os.environ.copy()
+        env.update(
+            {
+                "CAPTURE_FILE": str(capture_file),
+                "PATH": f"{bin_dir}:{env['PATH']}",
+                "REVIEWER_MODEL": "gpt-5.4",
+                "REVIEWER_PROFILE": "aris-reviewer-openai",
+            }
+        )
+        run(["bash", "-eu", "-o", "pipefail", "-c", shell], cwd=case_dir, env=env)
+
+        assert not marker.exists()
+        assert malicious_inputs in capture_file.read_text()
 
 
 def test_stop_gate_uses_snapshotted_state_and_executable_transition_table() -> None:

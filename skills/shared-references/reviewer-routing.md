@@ -449,13 +449,21 @@ The profile name is the router-selected opposite-family profile (`aris-reviewer-
 
 **Pattern for round 2+:**
 
+First use the host's **Write tool**—never Bash, `echo`, a heredoc, or generated
+shell assignments—to overwrite
+`review-stage/CURRENT_REVIEW_INPUTS.md`. Store the exact changed paths, diff
+artifact/range, and updated result paths under static labels. Those values may
+contain arbitrary repository-controlled bytes and must remain file data.
+
 ```bash
-# These variables are data. Do not splice their values into shell source.
-CHANGED_PATHS="<newline-delimited changed paths>"
-DIFF_PATH="<diff artifact path>"
-RESULT_PATHS="<newline-delimited result paths>"
+# ARIS_ROUND2_COPILOT_BEGIN
+# Dynamic values were written with the Write tool; shell only reads them as data.
 MEMORY_FILE="review-stage/REVIEWER_MEMORY.md"
-[[ -f "$MEMORY_FILE" ]] || { echo "REVIEW_UNAVAILABLE: missing reviewer memory" >&2; exit 1; }
+ROUND_INPUT_FILE="review-stage/CURRENT_REVIEW_INPUTS.md"
+[[ -f "$MEMORY_FILE" && -f "$ROUND_INPUT_FILE" ]] || {
+  echo "REVIEW_UNAVAILABLE: missing reviewer memory or round inputs" >&2
+  exit 1
+}
 PROMPTFILE="$(mktemp)" || { echo "REVIEW_UNAVAILABLE: mktemp failed" >&2; exit 1; }
 trap 'rm -f "$PROMPTFILE"' EXIT
 {
@@ -470,7 +478,7 @@ cat <<'ARIS_MEMORY_FOOTER'
 ## Current State
 Since your last review these files changed — read them yourself:
 ARIS_MEMORY_FOOTER
-printf '%s\n' "Changed files:" "$CHANGED_PATHS" "Raw diff: $DIFF_PATH" "Updated raw results:" "$RESULT_PATHS"
+cat -- "$ROUND_INPUT_FILE"
 cat <<'ARIS_MEMORY_INSTRUCTIONS'
 
 Please re-score and re-assess. Are the remaining concerns addressed?
@@ -482,6 +490,7 @@ ARIS_MEMORY_INSTRUCTIONS
 } > "$PROMPTFILE"
 copilot --agent "$REVIEWER_PROFILE" --model "$REVIEWER_MODEL" \
   --effort xhigh --allow-tool=read --prompt "$(cat "$PROMPTFILE")"
+# ARIS_ROUND2_COPILOT_END
 ```
 
 **IMPORTANT:** This is architecturally different from `SendMessage` (which would require a persistent subagent handle that `copilot --agent` does not provide). The memory-artifact pattern is the documented alternative for stateful multi-round workflows in Copilot CLI.
