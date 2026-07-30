@@ -1,6 +1,6 @@
 # ARIS Skills Catalog
 
-Every skill that ships with ARIS, grouped by role. **81 skills** as of the
+Every skill that ships with ARIS, grouped by role. **82 skills** as of the
 latest update; new skills land via PR and get added to the table below.
 
 - Each `Skill` link goes to the canonical `SKILL.md` (the LLM-readable spec).
@@ -70,6 +70,14 @@ Generating, refining, planning research ideas before implementation.
 | [`/experiment-plan`](../skills/experiment-plan/SKILL.md) | Turn a refined proposal into a claim-driven experiment roadmap — ablations, budgets, run order | None |
 | [`/ablation-planner`](../skills/ablation-planner/SKILL.md) | Design ablation studies from a reviewer's perspective (after main results pass `/result-to-claim`) | Codex MCP |
 | [`/formula-derivation`](../skills/formula-derivation/SKILL.md) | Structure theory derivations — organize assumptions, build derivation chains, turn scattered equations into coherent narrative | None |
+
+## 🧠 Proof Engineering
+
+Orchestrating and independently auditing mathematical proofs.
+
+| Skill | Role | Requires |
+|---|---|---|
+| [`/proof-orchestrator`](../skills/proof-orchestrator/SKILL.md) | Run local-first proof attempts, correctness/notation gates, manual GPT Pro handoffs, and explicitly requested DeepSeek second-opinion audits | None by default; llm-chat MCP only for optional DeepSeek review |
 
 ## 🧪 Experiments & Infrastructure
 
