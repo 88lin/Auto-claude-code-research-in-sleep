@@ -265,7 +265,7 @@ ARIS 读论文 → 找弱点 → 克隆代码 → 针对*那些*弱点用*那套
 
 ## 2. 📢 最近更新
 
-- **2026-08-03** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧭 **`/proof-orchestrator` —— 独立的理论攻坚工作流:带记忆的证明战役**([#381](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/381),社区贡献 by [@shenmuxing](https://github.com/shenmuxing),改编自其本人的 [EtaSkill](https://github.com/shenmuxing/EtaSkill))。硬定理很少一轮对话就倒下——这个 skill 把证明工作跑成有状态的 local-first 流水线:冻结精确目标、本地攻坚与审计、过七行记号记分卡(未定义符号与符号冲突必须为零)和自顶向下推导结构门;证明卡住时,产出可直接复制粘贴的 GPT Pro 交接包。run 跨 session 延续:每个新 run 记录此前哪些 claim 已证/猜想/已否决,只有审计通过的 claim 才被复用。可按需请求 DeepSeek 对抗性第二意见。工作流 1–6 不会调用它;`/proof-checker` 仍是投稿门。⚠️ 运行 `bash tools/smart_update.sh --apply` 拉取更新。
+- **2026-08-03** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧭 **`/proof-orchestrator` —— 工作流 7,独立理论轨道:带记忆的证明战役**([#381](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/381),社区贡献 by [@shenmuxing](https://github.com/shenmuxing),改编自其本人的 [EtaSkill](https://github.com/shenmuxing/EtaSkill))。硬定理很少一轮对话就倒下——这个 skill 把证明工作跑成有状态的 local-first 流水线:冻结精确目标、本地攻坚与审计、过七行记号记分卡(未定义符号与符号冲突必须为零)和自顶向下推导结构门;证明卡住时,产出可直接复制粘贴的 GPT Pro 交接包。run 跨 session 延续:每个新 run 记录此前哪些 claim 已证/猜想/已否决,只有审计通过的 claim 才被复用。可按需请求 DeepSeek 对抗性第二意见。工作流 1–6 不会调用它;`/proof-checker` 仍是投稿门。⚠️ 运行 `bash tools/smart_update.sh --apply` 拉取更新。
 - **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🐞 **[`/web-debug-search`](skills/web-debug-search/SKILL.md)**（Issue [#211](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/issues/211)）。新增聚焦调试/发现的检索流程：搜索 GitHub Issues 与 Discussions，支持精确/归一化错误字符串匹配、版本兼容性追踪和明确的失败处理。所有结果都标记为调试用途，不能作为论文引用证据。
 - **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧩 **选择性安装 + 全局脚本指针**([#366](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/366))。81 个 skill 不再"一股脑全装"——四套安装器都支持按组/按 skill 选装(`--list-groups` / `--groups X,Y` / `--skills X` / `--exclude Y`,或 TTY 下的全屏勾选界面),pipeline 硬依赖自动带全。更新时上游**新增**的 skill 会逐个确认(`--add-new` / `--skip-new` 供脚本化;拒绝的记住、不再重复问)。同时修了全局 copy 安装(`~/.claude/skills`)找不到 helper 脚本的问题,新增指针文件 `~/.aris/repo`。⚠️ 向后兼容:`--quiet` 全新安装仍是全装;跑一次任意安装器/更新器即可拿到指针文件。[选择性安装 →](#install-skills)
 - **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **投稿前,你的论文先过一遍审稿人那侧的取证**([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357))。新 skill `/integrity-forensics`:SHA-pin 薄启动器,把 [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) 那套敌意审稿人能跑的扫描(证据账本、九个审计维度、数值核心、纯规则裁决器)先跑在你自己的论文上。结论进一道 typed gate——flag 能拦下投稿,"没查出问题"只记作"无新阻断"、不算无罪判决;finding 只有带类型、带 hash 的证据、或人签字的 waiver 才能销项(把句子改个措辞不算数,台账会记下来)。`/paper-writing` 在 submission 档默认就跑(`— self_forensics: false` 可关;Codex 镜像是 opt-in,且只能跑上游的确定性切片——能报 flag,永远说不出 CLEAN)。⚠️ 首次运行需要联网克隆并校验上游;跑 `bash tools/smart_update.sh --apply` 拉取更新。
@@ -716,7 +716,7 @@ ARIS 全流程完成并进入投稿/审稿阶段的真实项目。**所列分数
 - **已有结果，需要迭代改进？** 工作流 2 → `/auto-review-loop`
 - **准备写论文了？** 工作流 3 → `/paper-writing`（或分步：`/paper-plan` → `/paper-figure` → `/paper-write` → `/paper-compile` → `/auto-paper-improvement-loop`）
 - **全流程？** 工作流 1 → 1.5 → 2 → 3 → `/research-pipeline`，从文献调研一路到投稿
-- **要打一场跨 session 的证明攻坚战？** 独立轨道 → `/proof-orchestrator` — run 目录制证明战役、GPT Pro 交接包、跨 run 接续
+- **要打一场跨 session 的证明攻坚战？** 工作流 7 → `/proof-orchestrator` — run 目录制证明战役、GPT Pro 交接包、跨 run 接续
 - **想让 ARIS 记住并学习？** 📚 `/research-wiki init` — 跨会话持久记忆，论文、idea、失败实验复合积累
 - **想让 ARIS 优化自己？** 工作流 M → `/meta-optimize` — 分析使用日志，提出技能改进，reviewer 审核
 
@@ -1069,7 +1069,7 @@ NARRATIVE_REPORT.md ──► /paper-plan ──► /paper-figure ──► /pap
 
 `/paper-talk` 把录用论文做成报告:提纲 → `/paper-slides`(Beamer + PPTX + 备注 + Q&A)→ `/slides-polish`(逐页 Codex 视觉审)→ 可选 conference-ready 审计门。是 `/paper-writing` / `/paper-poster-html` 的姊妹流程。**完整流程 → [docs/RESUBMIT_AND_TALK_CN.md](docs/RESUBMIT_AND_TALK_CN.md)**
 
-### 独立理论工作流:Proof Orchestrator 🧭(攻坚一个定理,以天为单位而不是以轮为单位)
+### 工作流 7:Proof Orchestrator 🧭(独立理论轨道——攻坚一个定理,以天为单位而不是以轮为单位)
 
 > **"这个证明要花一周、用三个工具。让每次尝试、每次审计、每次升级都留在案卷上。"**
 
@@ -1083,11 +1083,52 @@ NARRATIVE_REPORT.md ──► /paper-plan ──► /paper-figure ──► /pap
 6. 📦 **GPT Pro 交接** — 卡住的证明打成交接包:`browser-prompt.md`(可直接复制)、`source-manifest.md`(来源角色)、`handoff.md`(上传顺序 + 回贴指引)
 7. 🧾 **回贴复审** — 只做格式修复,然后走完整正确性审计与润色,产出 `final.md`
 
+<details>
+<summary><b>展开工作流 7 流程图</b> —— 冻结目标 → 本地攻坚 → 审计 → 记号/结构门 → (卡住时)GPT Pro 交接 → 回贴复审 → final.md,外加可选 DeepSeek 分支</summary>
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Workflow 7: Proof Orchestrator                     │
+│                                                                 │
+│   定理到达(新开 run,或接续旧 run)                             │
+│         │                                                       │
+│         ▼                                                       │
+│   ┌──────────┐     ┌──────────┐     ┌──────────┐               │
+│   │ 冻结目标 │────▶│ 本地证明 │────▶│ 正确性   │               │
+│   │ + 本地   │     │ 攻坚     │     │ 审计     │               │
+│   │ 证据     │     │          │     │          │               │
+│   └──────────┘     └──────────┘     └──────────┘               │
+│                         │                │                      │
+│                  LOCAL_BLOCKED     ┌──────────┐                │
+│                         │          │ 记号门 + │                │
+│                         │          │ 结构门   │──▶ final.md    │
+│                         │          │          │                │
+│                         │          └──────────┘                │
+│                         ▼                                       │
+│   ┌───────────────────────────────────────────┐                │
+│   │ GPT Pro 交接包                            │                │
+│   │ browser-prompt.md · source-manifest.md ·  │                │
+│   │ handoff.md —— 浏览器由你来开              │                │
+│   └───────────────────────────────────────────┘                │
+│                         │                                       │
+│                         ▼                                       │
+│   gpt-pro-output.md → 格式修复 → 复审 → 两道门 → final.md      │
+│                                                                 │
+│   可选(按需):DeepSeek 对抗审 via llm-chat                    │
+│   → 本地核验 → run 内 provisional 证据                         │
+│                                                                 │
+│   状态:prompts/<run-id>/ —— 完成的 run 只增不改;              │
+│   新 run 只复用审计通过的 claim                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+</details>
+
 **涉及 Skills:** `proof-orchestrator`(+ 可选 DeepSeek 分支用 `llm-chat` MCP)
 
 > ⚖️ **可选 DeepSeek 第二意见:** 在审计阶段按需请求,得到一次验证过模型的跨家族对抗审——发现先经本地核验,再记为 run 内的 provisional 证据。装了 `call-gpt-pro` skill 后,也可以在某次 run 上让它代跑 GPT Pro 调用。
 
-> 🧭 **设计上就是独立的。** 这是理论工作自己的轨道——工作流 1–6 的任何环节都不会调用它,工作流 3 里的投稿门仍归 `/proof-checker`。当一个定理超出 `/proof-writer` 单次起草的量级——多天攻坚、跨 run 接续、或最强的证明器在浏览器标签页里——就用它。
+> 🧭 **设计上就是独立的。** 工作流 7 是理论工作自己的轨道——工作流 1–6 的任何环节都不会调用它,工作流 3 里的投稿门仍归 `/proof-checker`。当一个定理超出 `/proof-writer` 单次起草的量级——多天攻坚、跨 run 接续、或最强的证明器在浏览器标签页里——就用它。
 
 > 💡 **接续:** 指向旧 run(`next.md` / `redo.md`)——它读取 `final.md` / `audit.md`,只复用审计通过的 claim,并带着完整出处新开一个 run 目录。
 
