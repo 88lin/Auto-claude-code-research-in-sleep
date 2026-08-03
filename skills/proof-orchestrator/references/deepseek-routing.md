@@ -10,7 +10,17 @@ produce the final audit.
 Prefer an installed MCP bridge that can call DeepSeek directly, such as
 `mcp__llm_chat__chat`.
 
-Use the configured default model unless the user names another DeepSeek model.
+The bridge is generic: `llm-chat`'s default model AND its 504-timeout fallback
+are both `gpt-4o` unless the environment overrides them, so "the configured
+default" may not be DeepSeek at all. Before labeling any output
+`llm-chat-deepseek`, VERIFY the actual provider/model: the bridge response
+reports the model it used — require it to be a DeepSeek model. If the response
+comes back from a non-DeepSeek model (wrong default, or the bridge's timeout
+fallback), mark the run `DEEPSEEK_REVIEW_BLOCKED` and record what actually
+answered; never record a non-DeepSeek or unknown-model response as DeepSeek
+evidence or as cross-family review. `unknown` fails closed.
+
+Use the verified DeepSeek model unless the user names another DeepSeek model.
 Do not expose or write API keys. If the MCP bridge is missing, unavailable, or
 misconfigured, do not create credentials inside the repository; report setup as
 blocked or use the fallback route.

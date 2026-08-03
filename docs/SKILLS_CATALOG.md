@@ -77,7 +77,7 @@ Orchestrating and independently auditing mathematical proofs.
 
 | Skill | Role | Requires |
 |---|---|---|
-| [`/proof-orchestrator`](../skills/proof-orchestrator/SKILL.md) | Run local-first proof attempts, correctness/notation gates, manual GPT Pro handoffs, and explicitly requested DeepSeek second-opinion audits | None by default; llm-chat MCP only for optional DeepSeek review |
+| [`/proof-orchestrator`](../skills/proof-orchestrator/SKILL.md) | Stateful proof-run orchestration: run directories, cross-run continuation, manual GPT Pro handoff packages, optional DeepSeek second opinion (additional evidence only — `/proof-writer` drafts proofs, `/proof-checker` owns verification and submission acceptance) | None by default; llm-chat MCP only for optional DeepSeek review |
 
 ## 🧪 Experiments & Infrastructure
 

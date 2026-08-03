@@ -1,6 +1,7 @@
 # External Review Stress Tests
 
-Manual browser operation is the default for proof-orchestrator stress tests.
+User-operated manual browser handoff is the default for proof-orchestrator
+stress tests; the executor never operates a browser.
 First complete the local attempt and isolate the exact obligation being tested.
 
 For every test:
