@@ -293,6 +293,7 @@ Two outputs: `PASTE_READY.txt` (exact char count, paste to venue) + `REBUTTAL_DR
 
 ## 2. 📢 What's New
 
+- **2026-08-03** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧭 **`/proof-orchestrator` — a standalone theory workflow: proof campaigns with a memory** ([#381](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/381), community contribution by [@shenmuxing](https://github.com/shenmuxing), adapted from their own [EtaSkill](https://github.com/shenmuxing/EtaSkill)). Hard theorems rarely fall in one chat turn — this skill runs proof work as a stateful, local-first pipeline: freeze the exact target, attempt and audit locally, pass a 7-line notation scorecard (zero undefined symbols, zero collisions) and a top-down derivation-structure gate, and when a proof stalls, get a copy-paste-ready GPT Pro handoff package. Runs continue across sessions: each run records which prior claims were proved, conjectural, or rejected, and only audited claims are reused. A DeepSeek adversarial second opinion is available on request. Nothing in Workflows 1–6 calls it; `/proof-checker` remains the submission gate. ⚠️ Run `bash tools/smart_update.sh --apply` to pull.
 - **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🐞 **[`/web-debug-search`](skills/web-debug-search/SKILL.md)** (Issue [#211](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/issues/211)). Adds a focused debugging/discovery workflow for GitHub Issues and Discussions: exact and normalized error-string matching, version compatibility tracking, and explicit failure handling. Results are labeled for debugging only and are not paper-citation evidence.
 - **2026-07-14** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🧩 **Selective install + global helper pointer** ([#366](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/366)). The 81 skills are no longer all-or-nothing — all four installers support group/skill-level picks (`--list-groups`, `--groups X,Y`, `--skills X`, `--exclude Y`, or a bare-TTY checkbox picker), with hard pipeline deps auto-included. Updates now confirm each NEW upstream skill individually (`--add-new` / `--skip-new` for scripting; declines are remembered and never re-asked). Also fixes copy installs (`~/.claude/skills`) losing helper-script resolution, via a new `~/.aris/repo` pointer file. ⚠️ Backward compatible — `--quiet` fresh installs still install everything; run any installer/updater once to pick up the pointer file. [Selective install →](#install-skills)
 - **2026-07-12** — ![NEW](https://img.shields.io/badge/NEW-red?style=flat-square) 🛡️ **Your paper now gets the reviewer-side forensics treatment before you submit** ([#357](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/357)). New `/integrity-forensics` skill: a SHA-pinned thin launcher runs [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch)'s hostile-reviewer sweep (evidence ledger, nine auditor dimensions, numeric core, rules-only adjudicator) on your paper first. The verdict feeds a typed gate — flags can block a submission, a clean sweep is recorded as "no new blocker" (never an acquittal) — and findings close only with typed, hashed evidence or a recorded human waiver (rewording the flagged sentence doesn't count; the ledger notices). `/paper-writing` runs it by default at submission assurance (`— self_forensics: false` opts out; the Codex mirror is opt-in and limited to upstream's deterministic slice, which can flag but never say CLEAN). ⚠️ First run clones and validates the pinned upstream (needs network); run `bash tools/smart_update.sh --apply`.
@@ -766,6 +767,7 @@ These skills compose into a full research lifecycle. Each workflow can be used i
 - **Ready to write the paper?** Workflow 3 → `/paper-writing` (or step by step: `/paper-plan` → `/paper-figure` → `/paper-write` → `/paper-compile` → `/auto-paper-improvement-loop`)
 - **Got reviews back? Need to rebuttal?** Workflow 4 → `/rebuttal` — parse reviews, draft safe rebuttal, follow-up rounds
 - **Full pipeline?** Workflow 1 → 1.5 → 2 → 3 → submit → 4 → `/research-pipeline` + `/rebuttal` — from idea through submission and rebuttal
+- **Need a multi-session proof campaign?** Standalone → `/proof-orchestrator` — run-directory proof runs, GPT Pro handoff packages, cross-run continuation
 - **Want ARIS to remember and learn?** 📚 `/research-wiki init` — persistent memory across sessions. Papers, ideas, failed experiments compound over time
 - **Want ARIS to improve itself?** Workflow M → `/meta-optimize` — analyze usage logs, propose skill improvements, reviewer-gated
 
@@ -1201,6 +1203,28 @@ Port a polished paper from venue A → B under **hard, non-overridable guardrail
 ### Workflow 6: Conference Talk Pipeline 🎤 (paper → slides → polish → audits)
 
 `/paper-talk` turns an accepted paper into a talk: outline → `/paper-slides` (Beamer + PPTX + speaker notes + Q&A) → `/slides-polish` (per-page Codex visual pass) → optional conference-ready audit gate. Sister to `/paper-writing` / `/paper-poster-html`. **Full flow → [docs/RESUBMIT_AND_TALK.md](docs/RESUBMIT_AND_TALK.md)**
+
+### Standalone Theory Workflow: Proof Orchestrator 🧭 (attack a theorem across days, not turns)
+
+> **"This proof will take a week and three tools. Keep every attempt, audit, and escalation on the record."**
+
+Hard theorems are campaigns, not chat turns. `/proof-orchestrator` runs proof work as a stateful, local-first pipeline — each run gets its own directory, completed runs become append-only evidence, and every new run records which prior claims were proved, conjectural, or rejected:
+
+1. 🎯 **Freeze the target** — exact theorem, assumptions, quantifiers, allowed sources; new run or continuation
+2. 🧱 **Maintain local evidence** — run directory with `task.md` / `materials.md` / stable source snapshots
+3. 🧠 **Attempt locally** — full proof, disproof, counterexample, or diagnosis; a stall isolates the smallest hard obligation
+4. 🔍 **Audit correctness** — every lemma, bound, and quantifier checked against assumptions; claims labeled proved / imported / conjectural / repaired / unsupported
+5. ✒️ **Edit for exposition** — two gates: the 7-line notation scorecard (100% core-object retention, zero undefined symbols, zero collisions) and the top-down derivation-structure gate
+6. 📦 **GPT Pro handoff** — a stalled proof becomes a package: `browser-prompt.md` (copy-paste ready), `source-manifest.md` (source roles), `handoff.md` (upload order + return instructions)
+7. 🧾 **Re-audit the returned proof** — format repair only, then the full correctness audit and exposition edit produce `final.md`
+
+**Skills involved:** `proof-orchestrator` (+ `llm-chat` MCP for the optional DeepSeek branch)
+
+> ⚖️ **Optional DeepSeek second opinion:** request it at the audit stage for a verified cross-family adversarial pass — findings are validated locally and recorded as run-local provisional evidence. An installed `call-gpt-pro` skill can likewise automate the GPT Pro dispatch when you ask for it on a run.
+
+> 🧭 **Standalone by design.** This is theory work's own track — no Workflow 1–6 stage calls it, and `/proof-checker` keeps the submission gate in Workflow 3. Reach for it when a theorem outgrows single-shot `/proof-writer` drafting: multi-day campaigns, cross-run continuation, or when the strongest available prover lives in a browser tab.
+
+> 💡 **Continuation:** point it at a prior run (`next.md` / `redo.md`) — it reads `final.md` / `audit.md`, reuses only audited claims, and opens a fresh run directory with full provenance.
 
 <a id="-research-wiki--persistent-research-memory"></a>
 
