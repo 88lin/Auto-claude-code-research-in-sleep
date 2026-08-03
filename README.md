@@ -1214,7 +1214,7 @@ Hard theorems are campaigns, not chat turns. `/proof-orchestrator` runs proof wo
 2. 🧱 **Maintain local evidence** — run directory with `task.md` / `materials.md` / stable source snapshots
 3. 🧠 **Attempt locally** — full proof, disproof, counterexample, or diagnosis; a stall isolates the smallest hard obligation
 4. 🔍 **Audit correctness** — every lemma, bound, and quantifier checked against assumptions; claims labeled proved / imported / conjectural / repaired / unsupported
-5. ✒️ **Edit for exposition** — two gates: the 7-line notation scorecard (100% core-object retention, zero undefined symbols, zero collisions) and the top-down derivation-structure gate
+5. ✒️ **Edit for exposition** — two gates: the 7-line notation scorecard (100% core-object retention, zero undefined symbols, zero collisions) and the top-down derivation-structure gate (acyclic dependency graph, no subgoal silently assuming the target — a bug-catcher in disguise: a proof that resists a clean target-first rewrite is usually hiding a gap, and circular reasoning surfaces the moment you try)
 6. 📦 **GPT Pro handoff** — a stalled proof becomes a package: `browser-prompt.md` (copy-paste ready), `source-manifest.md` (source roles), `handoff.md` (upload order + return instructions)
 7. 🧾 **Re-audit the returned proof** — format repair only, then the full correctness audit and exposition edit produce `final.md`
 
