@@ -411,7 +411,7 @@ mcp__codex__codex:
 
     IMPORTANT: You have memory from prior rounds. Check whether your
     previous suspicions were genuinely addressed or merely sidestepped.
-    The author (Claude) controls what context you see — be skeptical
+    The author (the executor model) controls what context you see — be skeptical
     of convenient omissions.
 
     Review directly from the artifacts (paths below) — read the files yourself:
@@ -443,7 +443,7 @@ This is Round N/MAX_ROUNDS of an autonomous review loop.
 [Paste full contents of review-stage/REVIEWER_MEMORY.md]
 
 ## Instructions
-You have FULL READ ACCESS to this repository. The author (Claude) does NOT
+You have FULL READ ACCESS to this repository. The author (the executor model) does NOT
 control what you see — explore freely. Your job is to find problems the
 author might hide or downplay.
 
