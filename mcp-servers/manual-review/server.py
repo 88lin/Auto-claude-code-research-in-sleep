@@ -3,10 +3,12 @@
 
 A human-in-the-loop reviewer bridge: when the pipeline needs cross-model
 review, this server opens a browser page (or writes a file on headless Linux)
-where the user can copy the prompt to any model and paste the response back.
+where the user can copy the prompt to a different-family model and paste the
+response back.
 
-Zero API cost. Works with any text-capable model (ChatGPT web, DeepSeek,
-Kimi, local models, etc.).
+Zero API cost. The reviewer must be a model this server can classify by family
+(OpenAI, Anthropic, Google, DeepSeek, Moonshot/Kimi, Qwen) — an unclassifiable
+name cannot be shown to differ from the executor's, so it cannot acquit.
 """
 
 from __future__ import annotations
@@ -87,6 +89,14 @@ def model_family(model: str) -> str:
         families.add("anthropic")
     if re.search(r"(^|[^a-z0-9])(gemini|google)([^a-z0-9]|$)", name):
         families.add("google")
+    # The models MANUAL_REVIEW_GUIDE.md actually recommends to non-GPT users.
+    # [0-9.]* so versioned names (qwen3-max, qwen2.5-72b) still match.
+    if re.search(r"(^|[^a-z0-9])(deepseek)[0-9.]*([^a-z0-9]|$)", name):
+        families.add("deepseek")
+    if re.search(r"(^|[^a-z0-9])(kimi|moonshot)[0-9.]*([^a-z0-9]|$)", name):
+        families.add("moonshot")
+    if re.search(r"(^|[^a-z0-9])(qwen|tongyi)[0-9.]*([^a-z0-9]|$)", name):
+        families.add("qwen")
     return next(iter(families)) if len(families) == 1 else "unknown"
 
 
@@ -224,10 +234,18 @@ def write_pending_state(url: str | None, thread_id: str, prompt_file: str | None
         )
 
 
-def clear_pending_state(thread_id: str | None = None) -> None:
-    """Idempotent, thread-safe pending state cleanup."""
+def clear_pending_state(thread_id: str | None = None,
+                        keep_thread_dir: bool = False) -> None:
+    """Idempotent, thread-safe pending state cleanup.
+
+    keep_thread_dir preserves the per-thread directory when the round ended on a
+    fixable authoring error: in file mode that directory holds the prompt AND the
+    reviewer response the user just pasted, and deleting it would throw away
+    their work over a wrong first line. It does not make the call resumable — the
+    retry is a new call with a new directory.
+    """
     # Clear per-thread dir
-    if thread_id:
+    if thread_id and not keep_thread_dir:
         pdir = _pending_dir_for(thread_id)
         if pdir.exists():
             import shutil
@@ -373,7 +391,14 @@ class _ReviewHandler(http.server.BaseHTTPRequestHandler):
             if session:
                 identity_error = validate_reviewer_identity(response_text, session.config)
                 if identity_error:
-                    self.send_error(400, identity_error)
+                    # JSON, not send_error's HTML page: the browser shows this text
+                    # verbatim so a rejected paste is fixable in place.
+                    payload = json.dumps({"error": identity_error}).encode("utf-8")
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.send_header("Content-Length", str(len(payload)))
+                    self.end_headers()
+                    self.wfile.write(payload)
                     return
                 session.response = response_text
                 session.done.set()
@@ -508,6 +533,7 @@ def wait_for_file_response(prompt: str, config: dict, thread_id: str,
     pdir.mkdir(parents=True, exist_ok=True)
     prompt_path = pdir / "prompt.md"
     response_path = pdir / "response.md"
+    identity_error = None
 
     # Clean up any stale response file
     if response_path.exists():
@@ -593,7 +619,15 @@ def wait_for_file_response(prompt: str, config: dict, thread_id: str,
         if error is None and response is None and not cancel_event.is_set():
             error = f"Timed out after {DEFAULT_TIMEOUT_SEC}s waiting for {response_path}"
     finally:
-        clear_pending_state(thread_id)
+        if identity_error is not None and response_path.exists():
+            # The paste is almost right — only its first line is wrong. Park it under
+            # a name the next round will not clear (a retried review_reply reuses this
+            # same directory and unlinks response.md), so the text survives to be
+            # corrected and re-pasted. A second rejection replaces this file: the
+            # newest attempt is the one worth keeping, and rotating copies would be
+            # scaffolding for a case nobody wants back.
+            response_path.replace(pdir / "response.rejected.md")
+        clear_pending_state(thread_id, keep_thread_dir=identity_error is not None)
 
     return response, error
 
