@@ -17,6 +17,8 @@
 🛡️ **ARIS audits its own output → now [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) audits everyone's.** 61 signals — 46 integrity hack-patterns in 8 families, 13 AI-style impressions, 2 advisory — checked end-to-end into a deterministic, reviewer-ready report.
 *Self-consistency + fabrication forensics, **not** an AI-text detector.*
 
+<p align="center"><em>The field has put up with unreliable autoresearch long enough —<br>Anti-Autoresearch is the read that finally catches it.</em></p>
+
 🧱 **ARIS's reviewer is good — and it also proposed hashes nobody reads → [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) is the contract that stops that.** **H**ashing, **E**dge cases, **R**ubrics, **O**verbuild — the four shapes agents over-defend in, as a ~550-token block for `CLAUDE.md` / `AGENTS.md`.
 *It bounds what the agent **proposes**, never what it **looks for**.*
 
