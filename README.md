@@ -14,13 +14,11 @@
 
 🤖 **AI agents:** Read [`AGENT_GUIDE.md`](AGENT_GUIDE.md) instead — structured for LLM consumption, not human browsing.
 
-🛡️ **ARIS audits its own output → now [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) audits everyone's.** It catalogs **46 integrity hack-patterns across 8 families (A–H), plus 13 zero-verdict-weight AI-style impressions and 2 advisory signals — 61 signals total** — and checks a submission for them **end-to-end**, producing a deterministic, reviewer-ready integrity report. *Self-consistency + fabrication forensics, **not** an AI-text detector.*
+🛡️ **ARIS audits its own output → now [Anti-Autoresearch](https://github.com/wanshuiyin/Anti-Autoresearch) audits everyone's.** 61 signals — 46 integrity hack-patterns in 8 families, 13 AI-style impressions, 2 advisory — checked end-to-end into a deterministic, reviewer-ready report.
+*Self-consistency + fabrication forensics, **not** an AI-text detector.*
 
-<p align="center"><em>The field has put up with unreliable autoresearch long enough —<br>Anti-Autoresearch is the read that finally catches it.</em></p>
-
-🧱 **ARIS's reviewer is genuinely good — and it also proposed hashes nobody reads → [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) is the contract that stops that.** The four shapes coding agents over-defend in — **H**ashing, **E**dge cases, **R**ubrics, **O**verbuild — as a ~550-token block you paste into `CLAUDE.md` / `AGENTS.md`, plus an 18-entry catalogue of the behaviours it is meant to stop. Works with Claude Code, Codex, Antigravity, Cursor and Copilot; nothing to install. *It bounds what the agent **proposes**, never what it **looks for** — four catalogue entries are counterexamples for exactly that reason.*
-
-<p align="center"><em>You asked for a feature. It built a fortress around the feature,<br>and never got to the feature.</em></p>
+🧱 **ARIS's reviewer is good — and it also proposed hashes nobody reads → [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) is the contract that stops that.** **H**ashing, **E**dge cases, **R**ubrics, **O**verbuild — the four shapes agents over-defend in, as a ~550-token block for `CLAUDE.md` / `AGENTS.md`.
+*It bounds what the agent **proposes**, never what it **looks for**.*
 
 🎬 **ARIS goes multimodal → [ARIS-Movie-Director](https://github.com/wanshuiyin/ARIS-Movie-Director)** — hand it a rough story and get back a movie told in still frames, checked scene by scene (the reference run has 19 scenes).
 Long stories usually break when the model forgets earlier details or judges its own work — so ARIS keeps a research-wiki for memory and has other models check every frame.
