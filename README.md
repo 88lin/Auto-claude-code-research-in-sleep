@@ -18,6 +18,10 @@
 
 <p align="center"><em>The field has put up with unreliable autoresearch long enough —<br>Anti-Autoresearch is the read that finally catches it.</em></p>
 
+🧱 **ARIS's reviewer is genuinely good — and it also proposed hashes nobody reads → [HERO](https://github.com/wanshuiyin/HERO-Anti-OverDefense) is the contract that stops that.** The four shapes coding agents over-defend in — **H**ashing, **E**dge cases, **R**ubrics, **O**verbuild — as a ~550-token block you paste into `CLAUDE.md` / `AGENTS.md`, plus an 18-entry catalogue of the behaviours it is meant to stop. Works with Claude Code, Codex, Antigravity, Cursor and Copilot; nothing to install. *It bounds what the agent **proposes**, never what it **looks for** — four catalogue entries are counterexamples for exactly that reason.*
+
+<p align="center"><em>You asked for a feature. It built a fortress around the feature,<br>and never got to the feature.</em></p>
+
 🎬 **ARIS goes multimodal → [ARIS-Movie-Director](https://github.com/wanshuiyin/ARIS-Movie-Director)** — hand it a rough story and get back a movie told in still frames, checked scene by scene (the reference run has 19 scenes).
 Long stories usually break when the model forgets earlier details or judges its own work — so ARIS keeps a research-wiki for memory and has other models check every frame.
 
