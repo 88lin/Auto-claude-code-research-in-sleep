@@ -484,8 +484,12 @@ def test_save_trace_uses_only_validated_native_model_provenance(tmp_path: Path) 
 
     assert result.returncode == 0, result.stderr
     run_dir = next((challenge_path.parents[1] / ".aris" / "traces" / "auto-review-loop").iterdir())
-    request = json.loads(next(run_dir.glob("*.request.json")).read_text())
-    meta = json.loads(next(run_dir.glob("*.meta.json")).read_text())
+    request_path = next(run_dir.glob("*.request.json"))
+    request = json.loads(request_path.read_text())
+    # The call meta, not run.meta.json — "*.meta.json" matches both, and which one
+    # comes first is directory-iteration order, which is not ours to rely on.
+    meta_path = request_path.with_name(request_path.name[: -len(".request.json")] + ".meta.json")
+    meta = json.loads(meta_path.read_text())
     assert request["backend"] == "copilot-native"
     assert request["tool"] == "task(agent_type=rubber-duck)"
     assert request["executor_model"] == "claude-sonnet-4.6"

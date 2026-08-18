@@ -1001,8 +1001,12 @@ def _save_trace_request(tmp_path: Path, *extra: str) -> tuple[dict, dict, dict]:
     )
     assert result.returncode == 0, result.stderr
     run_dir = next((tmp_path / ".aris" / "traces" / "auto-review-loop").iterdir())
-    request = json.loads(next(run_dir.glob("*.request.json")).read_text())
-    meta = json.loads(next(run_dir.glob("*.meta.json")).read_text())
+    request_path = next(run_dir.glob("*.request.json"))
+    request = json.loads(request_path.read_text())
+    # The call meta, not run.meta.json — "*.meta.json" matches both, and which one
+    # comes first is directory-iteration order, which is not ours to rely on.
+    meta_path = request_path.with_name(request_path.name[: -len(".request.json")] + ".meta.json")
+    meta = json.loads(meta_path.read_text())
     run_meta = json.loads((run_dir / "run.meta.json").read_text())
     return request, meta, run_meta
 
