@@ -23,6 +23,11 @@ REQUIRED_PHASES = (
     "research-review",
     "research-refine-pipeline",
 )
+# These phases promise a model review, not merely executor-produced prose.  A
+# heading and a ``done`` self-report therefore cannot satisfy their evidence
+# obligation: the run state must contain the receipt written by ``accept`` or
+# ``mark-provisional``.
+REVIEW_REQUIRED_PHASES = frozenset({"novelty-check", "research-review"})
 START_MARKER = "<!-- ARIS_IDEA_DISCOVERY_EVIDENCE_GATE:START -->"
 END_MARKER = "<!-- ARIS_IDEA_DISCOVERY_EVIDENCE_GATE:END -->"
 
@@ -37,6 +42,8 @@ def _artifact_target(root: Path, artifact: str) -> tuple[Path, str | None]:
     path_text, separator, anchor = artifact.partition("#")
     if not path_text:
         raise ValueError("artifact path is empty")
+    if separator and not anchor.strip():
+        raise ValueError(f"artifact anchor is empty: {artifact}")
     candidate = (root / path_text).resolve()
     try:
         candidate.relative_to(root.resolve())
@@ -45,16 +52,82 @@ def _artifact_target(root: Path, artifact: str) -> tuple[Path, str | None]:
     return candidate, anchor if separator else None
 
 
-def _heading_slugs(path: Path) -> set[str]:
-    headings = set()
+def _heading_slug(line: str) -> str | None:
+    match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line)
+    if not match:
+        return None
+    text = match.group(1).strip().lower()
+    slug = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
+    return re.sub(r"[\s-]+", "-", slug).strip("-")
+
+
+def _section_has_content(path: Path, anchor: str) -> tuple[bool, bool]:
+    """Return whether the first matching section exists and has a non-empty body."""
+    found = False
     for line in path.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"^#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if not match:
+        heading = _heading_slug(line)
+        if not found:
+            if heading == anchor:
+                found = True
             continue
-        text = match.group(1).strip().lower()
-        slug = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
-        headings.add(re.sub(r"[\s-]+", "-", slug).strip("-"))
-    return headings
+        if heading is not None:
+            return True, False
+        if line.strip():
+            return True, True
+    return found, False
+
+
+def _review_provenance_reason(name: str, phase: dict, state: dict) -> str | None:
+    """Validate a reviewer receipt without granting or repairing acceptance."""
+    status = phase.get("status")
+    if status not in {"accepted", "provisional"}:
+        return f"{name} review evidence missing (status={status or 'unknown'})"
+
+    verdict_id = phase.get("verdict_id")
+    reviewer = phase.get("reviewer")
+    if not isinstance(verdict_id, str) or not verdict_id.strip():
+        return f"{name} review evidence missing (verdict_id not recorded)"
+    if not isinstance(reviewer, str) or not reviewer.strip():
+        return f"{name} review evidence missing (reviewer not recorded)"
+
+    executor = phase.get("executor_model")
+    if not isinstance(executor, str) or not executor.strip():
+        return f"{name} review provenance invalid (executor_model not recorded)"
+
+    executor_family = run_state.model_family(executor)
+    reviewer_family = run_state.model_family(reviewer)
+    if executor_family == "unknown" or reviewer_family in {"unknown", "deterministic"}:
+        return (
+            f"{name} review provenance invalid (model families cannot establish "
+            "a model review)"
+        )
+    if phase.get("executor_family") != executor_family:
+        return f"{name} review provenance invalid (executor_family inconsistent)"
+    if phase.get("reviewer_family") != reviewer_family:
+        return f"{name} review provenance invalid (reviewer_family inconsistent)"
+
+    if status == "accepted":
+        if phase.get("acceptance_status") != "accepted":
+            return f"{name} review provenance invalid (acceptance_status inconsistent)"
+        if executor_family == reviewer_family:
+            return f"{name} review provenance invalid (accepted review is same-family)"
+        if phase.get("review_independence") != "cross-family":
+            return f"{name} review provenance invalid (review_independence inconsistent)"
+        return None
+
+    if phase.get("acceptance_status") != "provisional":
+        return f"{name} review provenance invalid (acceptance_status inconsistent)"
+    if executor_family != reviewer_family:
+        return f"{name} review provenance invalid (provisional review is not same-family)"
+    if phase.get("review_independence") != "same-family":
+        return f"{name} review provenance invalid (review_independence inconsistent)"
+    policy = state.get("policy")
+    if not isinstance(policy, dict) or policy.get("provisional_advances") is not True:
+        return (
+            f"{name} review provenance invalid "
+            "(provisional review cannot advance this run)"
+        )
+    return None
 
 
 def evaluate(root: str | Path, state: dict) -> GateResult:
@@ -73,6 +146,11 @@ def evaluate(root: str | Path, state: dict) -> GateResult:
                 f"{name} evidence missing (status={phase.get('status', 'unknown')})"
             )
             continue
+        if name in REVIEW_REQUIRED_PHASES:
+            provenance_reason = _review_provenance_reason(name, phase, state)
+            if provenance_reason is not None:
+                reasons.append(provenance_reason)
+                continue
         artifact = phase.get("artifact")
         if not artifact:
             reasons.append(f"{name} evidence missing (artifact not recorded)")
@@ -85,8 +163,14 @@ def evaluate(root: str | Path, state: dict) -> GateResult:
         if not artifact_path.is_file():
             reasons.append(f"{name} evidence missing (artifact absent: {artifact})")
             continue
-        if anchor and anchor not in _heading_slugs(artifact_path):
-            reasons.append(f"{name} evidence missing (section absent: #{anchor})")
+        if anchor:
+            section_exists, section_has_content = _section_has_content(
+                artifact_path, anchor
+            )
+            if not section_exists:
+                reasons.append(f"{name} evidence missing (section absent: #{anchor})")
+            elif not section_has_content:
+                reasons.append(f"{name} evidence missing (section empty: #{anchor})")
 
     return GateResult("PASS" if not reasons else "BLOCKED", tuple(reasons))
 
@@ -94,7 +178,10 @@ def evaluate(root: str | Path, state: dict) -> GateResult:
 def _gate_section(result: GateResult) -> str:
     lines = [START_MARKER, "## Evidence Gate", f"**Status:** {result.verdict}", ""]
     if result.verdict == "PASS":
-        lines.append("All required stage records, artifacts, and report sections are present.")
+        lines.append(
+            "All required stage records, review receipts, artifacts, and report "
+            "sections are present."
+        )
     else:
         lines.append("The workflow is not complete. Required stage evidence is missing:")
         lines.extend(f"- BLOCKED: {reason}" for reason in result.reasons)
@@ -137,9 +224,9 @@ def run(root: str | Path, run_id: str, report: str | Path) -> GateResult:
     # The gate's verdict lives ONLY in gates.<GATE_NAME>. It must not mark the
     # semantic phases `accepted`: per resumable-runs.md, file-exists evidence
     # can accept a purely mechanical phase, while these five stages carry
-    # quality semantics whose acceptance belongs to their own cross-model or
-    # stage-level deterministic gates — and resume relies on done-but-not-
-    # accepted to know a stage still needs its audit.
+    # quality semantics whose acceptance/provisional receipt belongs to their
+    # own reviewer gate — and resume relies on done-but-not-reviewed to know a
+    # stage still needs its audit.
     run_state.record_gate_result(str(root), run_id, GATE_NAME, result.verdict, list(result.reasons))
     write_report_gate(root, report, result)
     return result
