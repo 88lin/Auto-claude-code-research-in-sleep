@@ -1543,7 +1543,13 @@ Skills 都是纯 Markdown,fork 了随便改。各 skill 的环境变量(GPU 目�
 
 ![GitHub stars](https://img.shields.io/github/stars/wanshuiyin/Auto-claude-code-research-in-sleep?style=social)
 
-[![Star History Chart](https://api.star-history.com/svg?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=Date&v=20260328)](https://star-history.com/#wanshuiyin/Auto-claude-code-research-in-sleep&Date)
+<a href="https://www.star-history.com/?repos=wanshuiyin%2FAuto-claude-code-research-in-sleep&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&theme=dark&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
+ </picture>
+</a>
 
 <a id="acknowledgements"></a>
 
