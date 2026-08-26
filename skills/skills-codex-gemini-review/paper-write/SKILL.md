@@ -363,6 +363,8 @@ Before declaring done:
 - **Every claim must cite evidence** — cross-reference the Claims-Evidence Matrix
 - **Compile-ready** — the output should compile with `latexmk` without errors (modulo missing figures)
 - **Calibrate, don't hedge** — match each claim to its evidence's actual scope and modality, then state it directly; generic caveats live in Limitations only (the CONFIDENT PROSE, HONEST LIMITS block above is the contract)
+- **Order results by argument, not by lab notebook** — present experiments in the sequence that best builds the case, never in the order they happened to run
+- **Controls and ablations sit next to the claim they test** — not pooled in a distant subsection where the reader has forgotten what was at stake
 - **Venue style matters** — all three venues (ICLR/NeurIPS/ICML) use `natbib` (`\citep`/`\citet`)
 - **Page limit = main body to Conclusion** — references and appendix do NOT count
 - **Clean bib** — references.bib must only contain entries that are actually `\cite`d
