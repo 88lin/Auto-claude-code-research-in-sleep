@@ -1761,9 +1761,9 @@ If you use ARIS in your research, please cite:
 
 <a href="https://www.star-history.com/?repos=wanshuiyin%2FAuto-claude-code-research-in-sleep&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&theme=dark&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=EwTfuIiKrMTijxgRUbRYsbVbFK66H--75a96vlyRE3oma6fkKB7EBsi4_cUXMLKRHAhtzwuBhsag7tEkpj_2bQP4IqvaaolzvZXPavLex8Z3pXvVgToqYQ" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&theme=dark&legend=top-left&sealed_token=k7GiP-sALgHwi5DeZRCZufnpu4KesUSoNuhjn6qeKlPZ03GyC-EvHB7yFbWOfXmlV2oXduMnFx0zW5-h7m_bKocO3KlfXKrVAAhJQ-au67CkRUp-m3KrRw" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=k7GiP-sALgHwi5DeZRCZufnpu4KesUSoNuhjn6qeKlPZ03GyC-EvHB7yFbWOfXmlV2oXduMnFx0zW5-h7m_bKocO3KlfXKrVAAhJQ-au67CkRUp-m3KrRw" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=wanshuiyin/Auto-claude-code-research-in-sleep&type=date&legend=top-left&sealed_token=k7GiP-sALgHwi5DeZRCZufnpu4KesUSoNuhjn6qeKlPZ03GyC-EvHB7yFbWOfXmlV2oXduMnFx0zW5-h7m_bKocO3KlfXKrVAAhJQ-au67CkRUp-m3KrRw" />
  </picture>
 </a>
 
