@@ -308,6 +308,17 @@ def transform_body(text: str) -> str:
     text = text.replace("agent id", "completed threadId")
     text = text.replace("agent ID", "completed threadId")
     text = text.replace("same agent", "same completed threadId")
+    # A Read/Grep/Glob reviewer can open a saved diff file but cannot run
+    # `git diff`; the codex mirror's wording offers the range as an option.
+    text = text.replace(
+        "- Changed since last round: <changed-file paths> — read the diff, not my description",
+        "- Changed since last round: <changed-file paths>, plus the saved diff "
+        "(`git diff > changes.patch`): <path> — read the diff, not my description",
+    )
+    text = text.replace(
+        "- Raw diff: <path, or the `git diff` range>",
+        "- Raw diff: <path to a saved diff file — you can read files but cannot run `git diff`>",
+    )
     return append_async_notes(add_artifact_review_tools(text))
 
 

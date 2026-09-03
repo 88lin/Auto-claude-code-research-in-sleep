@@ -111,7 +111,10 @@ class BridgeDefaultTests(unittest.TestCase):
             return MODULE.build_command("review this", **kwargs)
 
     def test_default_disables_all_tools(self) -> None:
-        cmd = self._cmd()
+        # DEFAULT_TOOLS is read from CLAUDE_REVIEW_TOOLS at import; pin the
+        # fallback so a developer who sets that variable does not fail here.
+        with mock.patch.object(MODULE, "DEFAULT_TOOLS", ""):
+            cmd = self._cmd()
         self.assertEqual(cmd[cmd.index("--tools") + 1], "")
 
     def test_explicit_readonly_tools_are_forwarded(self) -> None:
