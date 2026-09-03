@@ -277,6 +277,7 @@ ARIS 读论文 → 找弱点 → 克隆代码 → 针对*那些*弱点用*那套
 
 > ⚠️ 凡涉及 skill 变更的条目:跑 `bash tools/smart_update.sh --apply` 拉取。
 
+- **2026-09-03** — ![FIX](https://img.shields.io/badge/FIX-2ea44f?style=flat-square) 📣 **论文是发布会,不是工作汇报**(规则采自 [anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill),作者 [@Adkid-Zephyr](https://github.com/Adkid-Zephyr),觉得有用就 🌟)。写作契约新增四条:围绕真正的最强优势组织叙事;打不赢的指标不设为比赛;不占优的数字照样留在表里,证据支持时解释为目标差异或权衡,不支持就平实陈述、收窄主张——不写成认输,也不硬编权衡;每个实验必须有论证职责,没有就出主线;摘要引言按问题 → 缺口 → 思路 → 最硬的结果开场,结论不在最后一段突然自我否定。`/auto-paper-improvement-loop` 按同样标准挑毛病。收录在 [Awesome 社区](#awesome-community-skills)。
 - **2026-08-26** — ![FIX](https://img.shields.io/badge/FIX-2ea44f?style=flat-square) 🧯 **两处过度防御残留**([#425](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/425))。`/research-review` 是唯一没带范围约束块的审阅 prompt,现在补上了,简报结尾从光秃秃的"往死里挑"变成"撑得住就明说"——敌意立场一字未动。`/research-pipeline` 不再因为缺 `VENUE` 死在过夜跑里:找 idea、实验、分析、叙事报告都与 venue 无关,照常跑完——只推迟排版,盖章等 resume。它还一边写着 `VENUE = ICLR` 默认值一边禁止静默默认;默认值已删。
 - **2026-08-26** — ![FIX](https://img.shields.io/badge/FIX-2ea44f?style=flat-square) ✍️ **论文不再写成忏悔书**([#423](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/423)、[#424](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/424);多条规则采自 [humanize-paper](https://github.com/SyntaxSmith/humanize-paper))。claim 按证据配得上的力度直说;"further research is needed" 这类通用免责只住 Limitations;"别提 X"就是 X 不存在——绝不写 "we do not address X";结果按论证排序,不按实验先后。
 - **2026-08-26** — ![FIX](https://img.shields.io/badge/FIX-2ea44f?style=flat-square) 💡 **idea 流水线不再因为"有邻居"就杀 idea**([#419](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/419)–[#422](https://github.com/wanshuiyin/Auto-claude-code-research-in-sleep/pull/422);来自社区反馈)。ABANDON 必须指名那篇已经包含你结果的论文;同期工作是 race,你定,不是 veto。生成用双模型(gpt-5.6-sol + gpt-5.5)取并集,要的是对重要问题的创造性强攻,不是钻角落堆模块。搜索照样往死里查。
@@ -682,7 +683,7 @@ ARIS 全流程完成并进入投稿/审稿阶段的真实项目。**所列分数
 
 🎉 **社区 Skills（13 个）：** [research-refine](skills/research-refine/SKILL.md) · [experiment-plan](skills/experiment-plan/SKILL.md) · [research-refine-pipeline](skills/research-refine-pipeline/SKILL.md) · [grant-proposal](skills/grant-proposal/SKILL.md) · [paper-poster](skills/paper-poster/SKILL.md) (deprecated → [paper-poster-html](skills/paper-poster-html/SKILL.md)) · [paper-slides](skills/paper-slides/SKILL.md) · [mermaid-diagram](skills/mermaid-diagram/SKILL.md) · [proof-writer](skills/proof-writer/SKILL.md) · [comm-lit-review](skills/comm-lit-review/SKILL.md) · [dse-loop](skills/dse-loop/SKILL.md) · [idea-discovery-robot](skills/idea-discovery-robot/SKILL.md) · [paper-illustration](skills/paper-illustration/SKILL.md) · [skills-codex](skills/skills-codex/)
 
-🌐 **外部项目 & 文档（12 个）：** [rosetta](https://github.com/SyntaxSmith/rosetta) · [open-source-hardening-skills](https://github.com/zeyuzhangzyz/open-source-hardening-skills) · [CitationClaw](https://github.com/VisionXLab/CitationClaw) · [auto-hparam-tuning](https://github.com/zxh0916/auto-hparam-tuning) · [paper-to-course](https://github.com/KaguraTart/paper-to-course) · [deep-research-skills](https://github.com/Weizhena/deep-research-skills) · [Antigravity 适配指南](docs/ANTIGRAVITY_ADAPTATION_CN.md) · [OpenClaw 适配指南](docs/OPENCLAW_ADAPTATION.md) · [Cursor 适配指南](docs/CURSOR_ADAPTATION.md) · [Trae 适配指南](docs/TRAE_ARIS_RUNBOOK_CN.md) · [posterly](https://github.com/Chenruishuo/posterly) · [Claude Fleet](https://github.com/tianyilt/claude-fleet)
+🌐 **外部项目 & 文档（13 个）：** [rosetta](https://github.com/SyntaxSmith/rosetta) · [open-source-hardening-skills](https://github.com/zeyuzhangzyz/open-source-hardening-skills) · [CitationClaw](https://github.com/VisionXLab/CitationClaw) · [auto-hparam-tuning](https://github.com/zxh0916/auto-hparam-tuning) · [paper-to-course](https://github.com/KaguraTart/paper-to-course) · [deep-research-skills](https://github.com/Weizhena/deep-research-skills) · [Antigravity 适配指南](docs/ANTIGRAVITY_ADAPTATION_CN.md) · [OpenClaw 适配指南](docs/OPENCLAW_ADAPTATION.md) · [Cursor 适配指南](docs/CURSOR_ADAPTATION.md) · [Trae 适配指南](docs/TRAE_ARIS_RUNBOOK_CN.md) · [posterly](https://github.com/Chenruishuo/posterly) · [Claude Fleet](https://github.com/tianyilt/claude-fleet) · [anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill)
 
 > 🙌 感谢每一位贡献者！为了 README 的可读性，下方表格折叠展示——但每个 skill 和项目都同样珍贵。欢迎 PR！
 
@@ -708,11 +709,12 @@ ARIS 全流程完成并进入投稿/审稿阶段的真实项目。**所列分数
 </details>
 
 <details>
-<summary><b>🌐 外部项目 & 文档（12 个）</b> — 点击展开</summary>
+<summary><b>🌐 外部项目 & 文档（13 个）</b> — 点击展开</summary>
 
 | 名称 | 领域 | 描述 |
 |------|------|------|
 | 🪨 [rosetta](https://github.com/SyntaxSmith/rosetta) | Pro 级 ChatGPT MCP | Node 程序化访问 **ChatGPT Pro / `gpt-5.5-pro` / DeepResearch**——通过 Chrome CDP Fetch 拦截 + WebSocket second-leg streaming 实现。自带 MCP server（Claude Code / Codex / Cline），是 Oracle MCP 在 `— reviewer: oracle-pro` 高 tier review 上的另一种实现路径。支持多轮对话、并发、live token deltas、15 分钟 idle-timeout watchdog（长 Pro thinking 不会被误杀）。MIT，by [@SyntaxSmith](https://github.com/SyntaxSmith) |
+| 📣 [anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill) | 发布会写作原则 | 「论文是发布会,不是工作汇报」:十二条反防御性写作规则——围绕最强优势组织、只打赢得了的比赛、每个实验都有论证职责、禁用自我削弱表达。Skill(中/英)+ 复制即用提示词。其中四条已并入 ARIS 写作契约。MIT,by [@Adkid-Zephyr](https://github.com/Adkid-Zephyr) |
 | 🛡️ [open-source-hardening-skills](https://github.com/zeyuzhangzyz/open-source-hardening-skills) | DevOps / 开源 | 10 个 skill 流水线，将研究代码加固为生产级开源项目 |
 | 📊 [CitationClaw](https://github.com/VisionXLab/CitationClaw) | 通用 | 引用影响力分析——论文标题 → 引用爬取、学者识别、HTML 报告 |
 | 🚀 [Antigravity 适配指南](docs/ANTIGRAVITY_ADAPTATION_CN.md) | 通用 | 在 [Google Antigravity](https://antigravity.google/) 中使用 ARIS skills——原生 SKILL.md 支持，双模型（Claude Opus 4.6 / Gemini 3.1 Pro），MCP 配置，中[英](docs/ANTIGRAVITY_ADAPTATION.md)文指南 |
